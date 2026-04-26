@@ -11,7 +11,6 @@ import customtkinter as ctk
 @dataclass
 class IconApplyResult:
     ico_path: str | None
-    photo: tk.PhotoImage | None
     win32_icon_handles: list[int]
 
 
@@ -29,18 +28,10 @@ def candidate_ico_paths(preferred_ico_path: str | None = None) -> list[Path]:
     return candidates
 
 
-def candidate_png_paths() -> list[Path]:
-    return [
-        Path(__file__).resolve().parents[1] / "assets" / "icons" / "logo.png",
-        Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.png",
-    ]
-
-
 def apply_window_icon(
     window: tk.Tk | tk.Toplevel,
     *,
     preferred_ico_path: str | None = None,
-    existing_photo: tk.PhotoImage | None = None,
     apply_default_icon: bool = False,
     apply_win32_caption_icon: bool = False,
     win32_icon_handles: list[int] | None = None,
@@ -58,26 +49,14 @@ def apply_window_icon(
             handles = _apply_win32_caption_icons(
                 window, str(icon_path), existing_handles=win32_icon_handles
             ) if apply_win32_caption_icon else (win32_icon_handles or [])
-            return IconApplyResult(ico_path=str(icon_path), photo=existing_photo, win32_icon_handles=handles)
+            return IconApplyResult(ico_path=str(icon_path), win32_icon_handles=handles)
         except tk.TclError:
             continue
 
-    photo = existing_photo
-    if photo is None:
-        for png_path in candidate_png_paths():
-            if not png_path.exists():
-                continue
-            try:
-                photo = tk.PhotoImage(master=window, file=str(png_path))
-                break
-            except tk.TclError:
-                continue
-    if photo is not None:
-        try:
-            window.iconphoto(True, photo)
-        except tk.TclError:
-            pass
-    return IconApplyResult(ico_path=None, photo=photo, win32_icon_handles=win32_icon_handles or [])
+    return IconApplyResult(
+        ico_path=None,
+        win32_icon_handles=win32_icon_handles or [],
+    )
 
 
 def destroy_win32_icon_handles(handles: list[int]) -> None:

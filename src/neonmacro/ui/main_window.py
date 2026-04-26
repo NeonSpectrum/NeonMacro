@@ -39,7 +39,6 @@ class MainWindow(ctk.CTk):
     def __init__(self, config_path: Path) -> None:
         super().__init__()
         self.title("NeonMacro")
-        self._window_icon_photo: tk.PhotoImage | None = None
         self._window_icon_ico_path: str | None = None
         self._apply_window_icon()
         self._default_width = 600
@@ -128,9 +127,6 @@ class MainWindow(ctk.CTk):
     def _apply_window_icon(self) -> None:
         result = apply_window_icon(self, apply_default_icon=True)
         self._window_icon_ico_path = result.ico_path
-        self._window_icon_photo = result.photo
-        if self._window_icon_photo is not None and hasattr(self, "_iconbitmap_method_called"):
-            self._iconbitmap_method_called = True
 
     def _center_on_screen(self, width: int, height: int) -> None:
         screen_width = self.winfo_screenwidth()

@@ -83,11 +83,6 @@ jobs:
             $commonArgs += "--windows-icon-from-ico=$iconPath"
             # Bundle the runtime window icon so Tk can set titlebar/taskbar icon.
             $commonArgs += "--include-data-files=$iconPath=neonmacro/assets/icons/logo.ico"
-            $logoPngPath = "assets\icons\logo.png"
-            if (Test-Path $logoPngPath) {
-              # Bundle PNG runtime icon for tk.iconphoto, which can render more clearly.
-              $commonArgs += "--include-data-files=$logoPngPath=neonmacro/assets/icons/logo.png"
-            }
           }
 
           $buildArgs = @(
