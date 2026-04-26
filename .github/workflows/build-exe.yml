@@ -50,11 +50,6 @@ jobs:
           pip install -e .
           pip install nuitka ordered-set zstandard
 
-      - name: Install UPX
-        shell: pwsh
-        run: |
-          choco install upx -y
-
       - name: Build executable with Nuitka (${{ matrix.build_name }})
         shell: pwsh
         run: |
@@ -82,9 +77,6 @@ jobs:
             "--standalone",
             "--assume-yes-for-downloads",
             "--enable-plugin=tk-inter",
-            "--lto=yes",
-            "--python-flag=no_docstrings",
-            "--python-flag=-O",
             "--output-dir=build\dist"
           )
 
@@ -98,9 +90,6 @@ jobs:
             "--output-filename=${{ matrix.output_filename }}"
           ) + $commonArgs + @($launcherPath)
           python -m nuitka @buildArgs
-
-          $exePath = "build\dist\${{ matrix.output_filename }}"
-          upx --best --lzma $exePath
 
       - name: Verify built executable exists (${{ matrix.build_name }})
         shell: pwsh
