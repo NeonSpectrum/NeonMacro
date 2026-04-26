@@ -239,7 +239,8 @@ class MainWindow(ctk.CTk):
 
         header = ctk.CTkFrame(top, fg_color="transparent")
         header.pack(fill="x", padx=10, pady=(10, 6))
-        ctk.CTkLabel(header, text="Spam Profiles").pack(side="left", anchor="w")
+        self.status_var = ctk.StringVar(value="Current Spam: None | Status: Inactive")
+        ctk.CTkLabel(header, textvariable=self.status_var, anchor="w").pack(side="left", anchor="w")
         ctk.CTkButton(header, text="Options", width=96, command=self._open_options).pack(
             side="right", anchor="e"
         )
@@ -285,17 +286,16 @@ class MainWindow(ctk.CTk):
         self.after_idle(self._apply_responsive_column_widths)
         self.after_idle(self._update_table_scrollbar_visibility)
 
-        self.name_var = ctk.StringVar()
-        self.window_title_var = ctk.StringVar()
         self.use_regex_var = ctk.BooleanVar(value=False)
-        self.spam_key_var = ctk.StringVar(value="1")
 
-        ctk.CTkLabel(bottom, text="Spam Name").grid(row=1, column=0, sticky="w", padx=10, pady=(10, 2))
-        ctk.CTkEntry(bottom, textvariable=self.name_var).grid(
+        ctk.CTkLabel(bottom, text="Profile Name").grid(row=1, column=0, sticky="w", padx=10, pady=(10, 2))
+        self.name_entry = ctk.CTkEntry(bottom, placeholder_text="Enter profile name...")
+        self.name_entry.grid(
             row=2, column=0, sticky="ew", padx=10, pady=(0, 8)
         )
         ctk.CTkLabel(bottom, text="Window Title / Regex").grid(row=3, column=0, sticky="w", padx=10, pady=(0, 2))
-        ctk.CTkEntry(bottom, textvariable=self.window_title_var).grid(
+        self.window_title_entry = ctk.CTkEntry(bottom, placeholder_text="Enter window title...")
+        self.window_title_entry.grid(
             row=4, column=0, sticky="ew", padx=10, pady=(0, 4)
         )
         ctk.CTkCheckBox(bottom, text="Use regex", variable=self.use_regex_var).grid(
@@ -303,33 +303,28 @@ class MainWindow(ctk.CTk):
         )
 
         ctk.CTkLabel(bottom, text="Interval (ms)").grid(row=6, column=0, sticky="w", padx=10, pady=(0, 2))
-        self.interval_entry = ctk.CTkEntry(bottom, placeholder_text="250")
+        self.interval_entry = ctk.CTkEntry(bottom, placeholder_text="Enter interval (ms)...")
         self.interval_entry.grid(
             row=7, column=0, sticky="ew", padx=10, pady=(0, 8)
         )
-        ctk.CTkLabel(bottom, text="Hotkey").grid(
+        ctk.CTkLabel(bottom, text="Hotkey (e.g., CTRL+F1, ^F1)").grid(
             row=8, column=0, sticky="w", padx=10, pady=(0, 2)
         )
-        self.hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="CTRL+1")
+        self.hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="Enter hotkey...")
         self.hotkey_entry.grid(
             row=9, column=0, sticky="ew", padx=10, pady=(0, 8)
         )
-        ctk.CTkLabel(bottom, text="Spam Key").grid(row=10, column=0, sticky="w", padx=10, pady=(0, 2))
-        self.spam_key_entry = ctk.CTkEntry(bottom, textvariable=self.spam_key_var, placeholder_text="F1")
+        ctk.CTkLabel(bottom, text="Spam Key (e.g., F1)").grid(row=10, column=0, sticky="w", padx=10, pady=(0, 2))
+        self.spam_key_entry = ctk.CTkEntry(bottom, placeholder_text="Enter spam key...")
         self.spam_key_entry.grid(
             row=11, column=0, sticky="ew", padx=10, pady=(0, 8)
         )
 
         button_row = ctk.CTkFrame(bottom, fg_color="transparent")
-        button_row.grid(row=12, column=0, sticky="ew", padx=10, pady=(0, 8))
+        button_row.grid(row=12, column=0, sticky="ew", padx=10, pady=(8, 16))
         ctk.CTkButton(button_row, text="Add", command=self._add_profile).pack(side="left")
         ctk.CTkButton(button_row, text="Update", command=self._update_selected).pack(side="left", padx=6)
         ctk.CTkButton(button_row, text="Delete", command=self._delete_selected).pack(side="left")
-
-        self.status_var = ctk.StringVar(value="Current Spam: None | Status: Inactive")
-        ctk.CTkLabel(bottom, textvariable=self.status_var, anchor="w").grid(
-            row=13, column=0, sticky="ew", padx=10, pady=(4, 10)
-        )
 
     def _bind_events(self) -> None:
         self.profile_table.bind("<<TreeviewSelect>>", self._on_table_selected)
@@ -556,12 +551,12 @@ class MainWindow(ctk.CTk):
         self._sync_overlay_visibility()
 
     def _parse_profile_from_form(self) -> SpamProfile | None:
-        name = self.name_var.get().strip()
-        title = self.window_title_var.get().strip()
+        name = self.name_entry.get().strip()
+        title = self.window_title_entry.get().strip()
         hotkey = self.hotkey_entry.get().strip().upper()
-        spam_key = self.spam_key_var.get().strip()
+        spam_key = self.spam_key_entry.get().strip()
         if not name:
-            messagebox.showerror("Validation", "Spam name is required.")
+            messagebox.showerror("Validation", "Profile name is required.")
             return None
         if not title:
             messagebox.showerror("Validation", "Window title pattern is required.")
@@ -661,10 +656,13 @@ class MainWindow(ctk.CTk):
             return
         profile = self._config.profiles[index]
         self._selected_profile_name = profile.name
-        self.name_var.set(profile.name)
-        self.window_title_var.set(profile.window_title)
+        self.name_entry.delete(0, tk.END)
+        self.name_entry.insert(0, profile.name)
+        self.window_title_entry.delete(0, tk.END)
+        self.window_title_entry.insert(0, profile.window_title)
         self.use_regex_var.set(profile.use_regex)
-        self.spam_key_var.set(profile.spam_key)
+        self.spam_key_entry.delete(0, tk.END)
+        self.spam_key_entry.insert(0, profile.spam_key)
         self.interval_entry.delete(0, tk.END)
         self.interval_entry.insert(0, str(profile.interval_ms))
         self.hotkey_entry.delete(0, tk.END)
@@ -840,7 +838,15 @@ class MainWindow(ctk.CTk):
             self._save_config_debounced()
 
     def _on_auto_stop_hotkey(self) -> None:
-        self.after(0, self._stop_all_active_profiles)
+        self.after(0, self._stop_all_active_profiles_if_allowed_app)
+
+    def _stop_all_active_profiles_if_allowed_app(self) -> None:
+        foreground = get_foreground_context()
+        if foreground is None:
+            return
+        if not is_allowed_application_focused(self._config.options, foreground.exe_name):
+            return
+        self._stop_all_active_profiles()
 
     def _stop_all_active_profiles(self) -> None:
         changed = False
@@ -855,10 +861,10 @@ class MainWindow(ctk.CTk):
         self._save_config_debounced()
 
     def _clear_form(self) -> None:
-        self.name_var.set("")
-        self.window_title_var.set("")
+        self.name_entry.delete(0, tk.END)
+        self.window_title_entry.delete(0, tk.END)
         self.use_regex_var.set(False)
-        self.spam_key_var.set("1")
+        self.spam_key_entry.delete(0, tk.END)
         self.interval_entry.delete(0, tk.END)
         self.hotkey_entry.delete(0, tk.END)
 
