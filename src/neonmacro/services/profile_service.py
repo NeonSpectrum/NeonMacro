@@ -84,7 +84,7 @@ def build_status_view(enabled: bool, active_profile_names: list[str]) -> StatusV
     active = enabled and bool(active_profile_names)
     label = "Active" if active else "Inactive"
     return StatusView(
-        text=f"Current Spam: {shown} | Status: {label}",
+        text=f"Current Profile: {shown} | Status: {label}",
         overlay_has_active_spam=active,
     )
 

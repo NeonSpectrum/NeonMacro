@@ -227,6 +227,8 @@ class MainWindow(ctk.CTk):
         self.interval_entry = widgets.form.interval_entry
         self.hotkey_entry = widgets.form.hotkey_entry
         self.spam_key_entry = widgets.form.spam_key_entry
+        self.update_button = widgets.update_button
+        self.delete_button = widgets.delete_button
 
         self._table_ui = TableUiManager(
             root=self,
@@ -532,7 +534,9 @@ class MainWindow(ctk.CTk):
     def _on_table_selected(self, _event=None) -> None:
         index = self._selected_index()
         if index is None:
+            self._set_selection_buttons_enabled(False)
             return
+        self._set_selection_buttons_enabled(True)
         profile = self._config.profiles[index]
         self._selected_profile_name = profile.name
         self.name_entry.delete(0, tk.END)
@@ -560,6 +564,7 @@ class MainWindow(ctk.CTk):
         self.profile_table.focus("")
         self._selected_profile_name = None
         self._clear_form()
+        self._set_selection_buttons_enabled(False)
         self._save_config_debounced()
 
     def _on_profile_selected_by_hotkey(self, profile_name: str) -> None:
@@ -739,6 +744,11 @@ class MainWindow(ctk.CTk):
         self.spam_key_entry.delete(0, tk.END)
         self.interval_entry.delete(0, tk.END)
         self.hotkey_entry.delete(0, tk.END)
+
+    def _set_selection_buttons_enabled(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        self.update_button.configure(state=state)
+        self.delete_button.configure(state=state)
 
     def _on_exit(self) -> None:
         if self._overlay_sync_job is not None:

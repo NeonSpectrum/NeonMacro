@@ -29,6 +29,8 @@ class MainWindowWidgets:
     status_var: ctk.StringVar
     table: TableWidgets
     form: FormWidgets
+    update_button: ctk.CTkButton
+    delete_button: ctk.CTkButton
 
 
 def build_main_window_widgets(
@@ -51,7 +53,7 @@ def build_main_window_widgets(
 
     header = ctk.CTkFrame(top, fg_color="transparent")
     header.pack(fill="x", padx=10, pady=(10, 6))
-    status_var = ctk.StringVar(value="Current Spam: None | Status: Inactive")
+    status_var = ctk.StringVar(value="Current Profile: None | Status: Inactive")
     ctk.CTkLabel(header, textvariable=status_var, anchor="w").pack(side="left", anchor="w")
     ctk.CTkButton(header, text="Options", width=96, command=open_options).pack(
         side="right", anchor="e"
@@ -128,8 +130,10 @@ def build_main_window_widgets(
     button_row = ctk.CTkFrame(bottom, fg_color="transparent")
     button_row.grid(row=12, column=0, sticky="ew", padx=10, pady=(8, 16))
     ctk.CTkButton(button_row, text="Add", command=add_profile).pack(side="left")
-    ctk.CTkButton(button_row, text="Update", command=update_profile).pack(side="left", padx=6)
-    ctk.CTkButton(button_row, text="Delete", command=delete_profile).pack(side="left")
+    update_button = ctk.CTkButton(button_row, text="Update", command=update_profile, state="disabled")
+    update_button.pack(side="left", padx=6)
+    delete_button = ctk.CTkButton(button_row, text="Delete", command=delete_profile, state="disabled")
+    delete_button.pack(side="left")
 
     return MainWindowWidgets(
         status_var=status_var,
@@ -142,4 +146,6 @@ def build_main_window_widgets(
             spam_key_entry=spam_key_entry,
             use_regex_var=use_regex_var,
         ),
+        update_button=update_button,
+        delete_button=delete_button,
     )

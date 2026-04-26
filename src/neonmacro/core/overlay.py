@@ -51,20 +51,21 @@ class OverlayWindow(ctk.CTkToplevel):
         self._panel = ctk.CTkFrame(
             self,
             fg_color="#000000",
-            corner_radius=14,
+            corner_radius=0,
             border_width=1,
             border_color="#00ffff",
         )
-        self._panel.pack(fill="both", expand=True, padx=6, pady=6)
+        self._panel.pack(fill="both", expand=True, padx=6, pady=4)
 
         self.profile_label = ctk.CTkLabel(
             self._panel,
-            text="Spam: None",
+            text="None",
             anchor="w",
             fg_color="transparent",
             text_color="#00ffff",
+            font=ctk.CTkFont(size=16, weight="bold"),
         )
-        self.profile_label.pack(fill="x", padx=14, pady=14)
+        self.profile_label.pack(fill="x", padx=14, pady=8)
 
         self._bind_drag_events(self)
         self._bind_drag_events(self._panel)
@@ -93,7 +94,7 @@ class OverlayWindow(ctk.CTkToplevel):
             shown = ", ".join(active_profile_names)
         else:
             shown = f"{active_profile_names[0]}, {active_profile_names[1]} +{len(active_profile_names) - 2}"
-        text = f"Spam: {shown}"
+        text = shown
         if text != self._last_set_text:
             self.profile_label.configure(text=text)
             self._last_set_text = text
@@ -162,7 +163,7 @@ class OverlayWindow(ctk.CTkToplevel):
         text_width = label_font.measure(text)
         text_height = label_font.metrics("linespace")
         target_width = text_width + (14 * 2) + (6 * 2)
-        target_height = text_height + (14 * 2) + (6 * 2)
+        target_height = text_height + (8 * 2) + (4 * 2)
         top_left_x = int(self._center_x - (target_width / 2))
         top_left_y = int(self._center_y - (target_height / 2))
         geometry = f"{target_width}x{target_height}+{top_left_x}+{top_left_y}"
