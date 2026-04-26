@@ -324,10 +324,16 @@ class MainWindow(ctk.CTk):
         x = parent_x + max(0, (parent_w - dialog_w) // 2)
         y = parent_y + max(0, (parent_h - dialog_h) // 2)
 
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        x = max(0, min(x, screen_w - dialog_w))
-        y = max(0, min(y, screen_h - dialog_h))
+        # Clamp within the virtual desktop so multi-monitor coordinates
+        # (including negative x/y on left/top monitors) are respected.
+        virtual_x = self.winfo_vrootx()
+        virtual_y = self.winfo_vrooty()
+        virtual_w = self.winfo_vrootwidth()
+        virtual_h = self.winfo_vrootheight()
+        max_x = virtual_x + virtual_w - dialog_w
+        max_y = virtual_y + virtual_h - dialog_h
+        x = max(virtual_x, min(x, max_x))
+        y = max(virtual_y, min(y, max_y))
         dialog.geometry(f"+{x}+{y}")
 
     def _save_options(
