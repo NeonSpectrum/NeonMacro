@@ -10,18 +10,6 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - build_name: gui
-            output_filename: NeonFtool.exe
-            artifact_name: neonftool-exe
-            console_mode: disable
-          - build_name: debug
-            output_filename: NeonFtool-debug.exe
-            artifact_name: neonftool-debug-exe
-            console_mode: force
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,10 +50,10 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          poetry --version
+          python -m poetry --version
           python -m poetry install --with dev --no-interaction --no-root
 
-      - name: Build executable with Nuitka (${{ matrix.build_name }})
+      - name: Build executable with Nuitka
         shell: pwsh
         run: |
           $iconPath = "assets\icons\logo.ico"
@@ -103,23 +91,23 @@ jobs:
           }
 
           $buildArgs = @(
-            "--windows-console-mode=${{ matrix.console_mode }}",
-            "--output-filename=${{ matrix.output_filename }}"
+            "--windows-console-mode=disable",
+            "--output-filename=NeonFtool.exe"
           ) + $commonArgs + @($launcherPath)
           python -m poetry run python -m nuitka @buildArgs
 
-      - name: Verify built executable exists (${{ matrix.build_name }})
+      - name: Verify built executable exists
         shell: pwsh
         run: |
-          if (!(Test-Path "build\dist\${{ matrix.output_filename }}")) {
-            throw "Expected build\dist\${{ matrix.output_filename }} to exist, but it was not found."
+          if (!(Test-Path "build\dist\NeonFtool.exe")) {
+            throw "Expected build\dist\NeonFtool.exe to exist, but it was not found."
           }
 
-      - name: Upload artifact (${{ matrix.build_name }})
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: build/dist/${{ matrix.output_filename }}
+          name: neonftool-exe
+          path: build/dist/NeonFtool.exe
 
   release:
     needs: build
@@ -131,12 +119,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: neonftool-exe
-          path: build/dist
-
-      - name: Download debug artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: neonftool-debug-exe
           path: build/dist
 
       - name: Publish pre-release from main
@@ -151,10 +133,9 @@ jobs:
           generate_release_notes: false
           body: |
             Automated pre-release build from `main`.
-            Includes the latest GUI and debug executables.
+            Includes the latest GUI executable.
           files: |
             build/dist/NeonFtool.exe
-            build/dist/NeonFtool-debug.exe
 
       - name: Publish release from tag
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -166,4 +147,3 @@ jobs:
           generate_release_notes: true
           files: |
             build/dist/NeonFtool.exe
-            build/dist/NeonFtool-debug.exe
