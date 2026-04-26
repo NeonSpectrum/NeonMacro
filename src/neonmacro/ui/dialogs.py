@@ -21,6 +21,7 @@ class OptionsDialog(ctk.CTkToplevel):
         self.title("Options")
         self.resizable(False, False)
         self.on_save = on_save
+        self._window_icon_photo = None
         self._window_icon_ico_path = None
 
         self.enable_overlay_var = ctk.BooleanVar(value=options.enable_overlay)
@@ -153,11 +154,14 @@ class OptionsDialog(ctk.CTkToplevel):
 
     def _apply_window_icon(self, parent: ctk.CTk) -> None:
         preferred_ico_path = getattr(parent, "_window_icon_ico_path", None)
+        existing_photo = getattr(parent, "_window_icon_photo", None)
         result = apply_window_icon(
             self,
             preferred_ico_path=preferred_ico_path,
+            existing_photo=existing_photo,
         )
         self._window_icon_ico_path = result.ico_path
+        self._window_icon_photo = result.photo
 
     def _build_options(self) -> AppOptions:
         apps = [item.strip() for item in self.allowed_apps_var.get().split(";") if item.strip()]
