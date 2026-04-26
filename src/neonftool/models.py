@@ -37,7 +37,15 @@ class SpamProfile:
     is_active: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # Runtime-only flag; do not persist active state in config.
+        return {
+            "name": self.name,
+            "window_title": self.window_title,
+            "use_regex": self.use_regex,
+            "spam_key": self.spam_key,
+            "interval_ms": self.interval_ms,
+            "select_hotkey": self.select_hotkey,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SpamProfile":
@@ -48,7 +56,7 @@ class SpamProfile:
             spam_key=str(data.get("spam_key", "1")).upper(),
             interval_ms=max(10, int(data.get("interval_ms", 250))),
             select_hotkey=str(data.get("select_hotkey", "")).upper(),
-            is_active=bool(data.get("is_active", False)),
+            is_active=False,
         )
 
 
@@ -56,6 +64,7 @@ class SpamProfile:
 class AppOptions:
     enable_overlay: bool = True
     lock_overlay: bool = False
+    force_overlay_visible: bool = False
     allow_parallel: bool = True
     auto_stop_on_key_press: bool = False
     auto_stop_keys: list[str] = field(default_factory=lambda: list(DEFAULT_AUTO_STOP_KEYS))
@@ -73,6 +82,7 @@ class AppOptions:
         return cls(
             enable_overlay=bool(data.get("enable_overlay", True)),
             lock_overlay=bool(data.get("lock_overlay", False)),
+            force_overlay_visible=bool(data.get("force_overlay_visible", False)),
             allow_parallel=bool(data.get("allow_parallel", True)),
             auto_stop_on_key_press=bool(data.get("auto_stop_on_key_press", False)),
             auto_stop_keys=normalized_stop_keys,

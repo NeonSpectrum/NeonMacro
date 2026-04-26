@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
@@ -48,11 +49,14 @@ class MainWindow(ctk.CTk):
             y=self._config.overlay.y,
             lock_overlay=self._config.options.lock_overlay,
             on_position_changed=self._on_overlay_position_changed,
+            on_drag_state_changed=self._on_overlay_drag_state_changed,
         )
         self._overlay_sync_job: str | None = None
         self._theme_sync_job: str | None = None
         self._overlay_position_save_job: str | None = None
         self._pending_overlay_center: tuple[int, int] | None = None
+        self._overlay_is_dragging = False
+        self._options_dialog: OptionsDialog | None = None
         self._last_engine_error_message: str = ""
         self._last_engine_error_at: float = 0.0
         self._last_appearance_mode: str = ""
@@ -381,6 +385,10 @@ class MainWindow(ctk.CTk):
         return image
 
     def _open_options(self) -> None:
+        if self._options_dialog is not None and self._options_dialog.winfo_exists():
+            self._options_dialog.lift()
+            self._options_dialog.focus_force()
+            return
         dialog = OptionsDialog(
             self,
             self._config.options,
@@ -388,9 +396,14 @@ class MainWindow(ctk.CTk):
             overlay_y=self._config.overlay.y,
             on_save=self._save_options,
         )
+        self._options_dialog = dialog
+        dialog.bind("<Destroy>", self._on_options_dialog_destroyed, add="+")
         dialog.transient(self)
         self._center_dialog_on_parent(dialog)
         dialog.focus()
+
+    def _on_options_dialog_destroyed(self, _event=None) -> None:
+        self._options_dialog = None
 
     def _center_dialog_on_parent(self, dialog: tk.Toplevel) -> None:
         self.update_idletasks()
@@ -494,19 +507,69 @@ class MainWindow(ctk.CTk):
         return False
 
     def _sync_overlay_visibility(self) -> None:
+        if self._config.options.force_overlay_visible:
+            self._overlay.set_text(["FORCED OVERLAY"], True)
+            self._overlay.deiconify()
+            self._overlay.attributes("-topmost", True)
+            self._overlay.keep_topmost_without_focus()
+            return
+        if self._overlay_is_dragging:
+            # Keep overlay visible while dragging to avoid flicker caused by
+            # transient foreground-title changes during mouse capture.
+            self._overlay.deiconify()
+            self._overlay.attributes("-topmost", True)
+            self._overlay.keep_topmost_without_focus()
+            return
+        matching_profiles = self._active_profiles_matching_foreground_title()
         allowed_app_focused = self._is_allowed_application_focused()
         should_show = (
             self._config.options.enable_overlay
             and self.state() != "iconic"
-            and self._overlay_has_active_spam
+            and bool(matching_profiles)
             and allowed_app_focused
         )
         if should_show:
+            self._overlay.set_text(matching_profiles, True)
             self._overlay.deiconify()
             self._overlay.attributes("-topmost", True)
             self._overlay.keep_topmost_without_focus()
         else:
+            self._overlay.set_text([], False)
             self._overlay.withdraw()
+
+    def _on_overlay_drag_state_changed(self, is_dragging: bool) -> None:
+        self._overlay_is_dragging = is_dragging
+        self._sync_overlay_visibility()
+
+    def _active_profiles_matching_foreground_title(self) -> list[str]:
+        active_profiles = [profile for profile in self._config.profiles if profile.is_active]
+        if not active_profiles:
+            return []
+        try:
+            foreground = win32gui.GetForegroundWindow()
+            if foreground == 0:
+                return []
+            title = win32gui.GetWindowText(foreground)
+        except win32gui.error:
+            return []
+        if not title.strip():
+            return []
+
+        matches: list[str] = []
+        lowered_title = title.lower()
+        for profile in active_profiles:
+            pattern = profile.window_title.strip()
+            if not pattern:
+                continue
+            if profile.use_regex:
+                try:
+                    if re.search(pattern, title, flags=re.IGNORECASE):
+                        matches.append(profile.name)
+                except re.error:
+                    continue
+            elif pattern.lower() in lowered_title:
+                matches.append(profile.name)
+        return matches
 
     def _is_allowed_application_focused(self) -> bool:
         allowed = {
@@ -666,7 +729,7 @@ class MainWindow(ctk.CTk):
     def _toggle_profile_by_hotkey(self, profile_name: str) -> None:
         for index, profile in enumerate(self._config.profiles):
             if profile.name == profile_name:
-                self._toggle_profile_active(index)
+                self._toggle_profile_active(index, persist=False)
                 return
 
     def _apply_active_profiles_state(self) -> None:
@@ -701,7 +764,6 @@ class MainWindow(ctk.CTk):
         label = "Active" if status.enabled and bool(active_names) else "Inactive"
         self._overlay_has_active_spam = status.enabled and bool(active_names)
         self.status_var.set(f"Current Spam: {shown} | Status: {label}")
-        self._overlay.set_text(active_names, status.enabled and bool(active_names))
         self._sync_overlay_visibility()
 
     def _refresh_profile_list(self, selected_name: str | None = None) -> None:
@@ -772,7 +834,7 @@ class MainWindow(ctk.CTk):
         self._config.overlay.y = center_y
         self._save_config()
 
-    def _toggle_profile_active(self, index: int) -> None:
+    def _toggle_profile_active(self, index: int, persist: bool = True) -> None:
         if index < 0 or index >= len(self._config.profiles):
             return
         profile = self._config.profiles[index]
@@ -784,7 +846,8 @@ class MainWindow(ctk.CTk):
             profile.is_active = next_active
         self._refresh_profile_list(selected_name=self._selected_profile_name)
         self._apply_active_profiles_state()
-        self._save_config()
+        if persist:
+            self._save_config()
 
     def _on_auto_stop_hotkey(self) -> None:
         self.after(0, self._stop_all_active_profiles)

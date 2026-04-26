@@ -23,6 +23,7 @@ class OptionsDialog(ctk.CTkToplevel):
 
         self.enable_overlay_var = ctk.BooleanVar(value=options.enable_overlay)
         self.lock_overlay_var = ctk.BooleanVar(value=options.lock_overlay)
+        self.force_overlay_visible_var = ctk.BooleanVar(value=options.force_overlay_visible)
         self.allow_parallel_var = ctk.BooleanVar(value=options.allow_parallel)
         self.auto_stop_on_key_press_var = ctk.BooleanVar(value=options.auto_stop_on_key_press)
         self.auto_stop_keys_var = ctk.StringVar(value=";".join(options.auto_stop_keys))
@@ -42,6 +43,11 @@ class OptionsDialog(ctk.CTkToplevel):
         ctk.CTkCheckBox(overlay_group, text="Click through overlay", variable=self.lock_overlay_var).pack(
             anchor="w", padx=10, pady=(2, 6)
         )
+        ctk.CTkCheckBox(
+            overlay_group,
+            text="Force overlay visible (debug)",
+            variable=self.force_overlay_visible_var,
+        ).pack(anchor="w", padx=10, pady=(0, 6))
         ctk.CTkLabel(overlay_group, text="Coordinates").pack(anchor="w", padx=10, pady=(0, 2))
         coords_row = ctk.CTkFrame(overlay_group, fg_color="transparent")
         coords_row.pack(fill="x", padx=10, pady=(0, 10))
@@ -53,6 +59,12 @@ class OptionsDialog(ctk.CTkToplevel):
         ctk.CTkEntry(coords_row, textvariable=self.overlay_y_var, width=80).pack(
             side="left", padx=(6, 0)
         )
+        ctk.CTkButton(
+            coords_row,
+            text="Reset Overlay Position",
+            width=170,
+            command=self._reset_overlay_position,
+        ).pack(side="right")
 
         spam_group = ctk.CTkFrame(body)
         spam_group.pack(fill="x", pady=(0, 10))
@@ -95,6 +107,7 @@ class OptionsDialog(ctk.CTkToplevel):
         options = AppOptions(
             enable_overlay=self.enable_overlay_var.get(),
             lock_overlay=self.lock_overlay_var.get(),
+            force_overlay_visible=self.force_overlay_visible_var.get(),
             allow_parallel=self.allow_parallel_var.get(),
             auto_stop_on_key_press=self.auto_stop_on_key_press_var.get(),
             auto_stop_keys=stop_keys,
@@ -102,4 +115,10 @@ class OptionsDialog(ctk.CTkToplevel):
         )
         self.on_save(options, (overlay_x, overlay_y))
         self.destroy()
+
+    def _reset_overlay_position(self) -> None:
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        self.overlay_x_var.set(str(screen_w // 2))
+        self.overlay_y_var.set(str(screen_h // 2))
 
