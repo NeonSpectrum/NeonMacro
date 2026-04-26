@@ -59,7 +59,7 @@ class OverlayWindow(ctk.CTkToplevel):
 
         self.profile_label = ctk.CTkLabel(
             self._panel,
-            text="Profiles: None",
+            text="Spam: None",
             anchor="w",
             fg_color="transparent",
             text_color="#00ffff",
@@ -93,7 +93,7 @@ class OverlayWindow(ctk.CTkToplevel):
             shown = ", ".join(active_profile_names)
         else:
             shown = f"{active_profile_names[0]}, {active_profile_names[1]} +{len(active_profile_names) - 2}"
-        text = f"Profiles: {shown}"
+        text = f"Spam: {shown}"
         if text != self._last_set_text:
             self.profile_label.configure(text=text)
             self._last_set_text = text
