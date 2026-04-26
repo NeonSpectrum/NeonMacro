@@ -45,7 +45,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install poetry
           python -m poetry --version
-          python -m poetry install --with dev --no-interaction --no-root
+          python -m poetry install --with dev --no-interaction
 
       - name: Build executable with Nuitka
         shell: pwsh
@@ -74,6 +74,7 @@ jobs:
             "--standalone",
             "--assume-yes-for-downloads",
             "--enable-plugin=tk-inter",
+            "--include-package=neonftool",
             "--output-dir=build\dist"
           )
 
@@ -85,7 +86,6 @@ jobs:
           }
 
           $buildArgs = @(
-            "--windows-console-mode=disable",
             "--output-filename=NeonFtool.exe"
           ) + $commonArgs + @($launcherPath)
           python -m poetry run python -m nuitka @buildArgs
