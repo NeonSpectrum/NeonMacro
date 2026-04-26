@@ -24,8 +24,9 @@ class MainWindow(ctk.CTk):
     def __init__(self, config_path: Path) -> None:
         super().__init__()
         self.title("NeonFtool")
-        self._default_width = 920
-        self._default_height = 900
+        self._apply_window_icon()
+        self._default_width = 600
+        self._default_height = 850
         self.geometry(f"{self._default_width}x{self._default_height}")
         self._center_on_screen(self._default_width, self._default_height)
 
@@ -39,6 +40,7 @@ class MainWindow(ctk.CTk):
         )
         self._hotkeys = HotkeyManager(
             on_profile_hotkey=self._on_profile_selected_by_hotkey,
+            on_auto_stop_hotkey=self._on_auto_stop_hotkey,
         )
         self._overlay = OverlayWindow(
             self,
@@ -74,7 +76,6 @@ class MainWindow(ctk.CTk):
         self._overlay_has_active_spam = False
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
-        self._build_menu()
         self._apply_table_theme()
         self._build_layout()
         self._bind_events()
@@ -94,6 +95,22 @@ class MainWindow(ctk.CTk):
                 "Some profile hotkeys were removed because they are unavailable:\n\n"
                 f"{details}",
             )
+
+    def _apply_window_icon(self) -> None:
+        # EXE icon metadata and runtime window icon are separate on Windows.
+        # Set the runtime icon explicitly, with fallback to CustomTkinter's icon.
+        candidate_icons = [
+            Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.ico",
+            Path(ctk.__file__).resolve().parent / "assets" / "icons" / "CustomTkinter_icon_Windows.ico",
+        ]
+        for icon_path in candidate_icons:
+            if not icon_path.exists():
+                continue
+            try:
+                self.iconbitmap(str(icon_path))
+                return
+            except tk.TclError:
+                continue
 
     def _center_on_screen(self, width: int, height: int) -> None:
         screen_width = self.winfo_screenwidth()
@@ -180,20 +197,6 @@ class MainWindow(ctk.CTk):
         if removed_any:
             self._store.save(self._config)
 
-    def _build_menu(self) -> None:
-        def _menu_label(text: str, width: int = 18) -> str:
-            return f"{text:<{width}}"
-
-        menu = tk.Menu(self)
-        file_menu = tk.Menu(menu, tearoff=0)
-        file_menu.add_command(label=_menu_label("Exit"), command=self._on_exit)
-        menu.add_cascade(label="File", menu=file_menu)
-
-        tools_menu = tk.Menu(menu, tearoff=0)
-        tools_menu.add_command(label=_menu_label("Options"), command=self._open_options)
-        menu.add_cascade(label="Tools", menu=tools_menu)
-        self.configure(menu=menu)
-
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -205,7 +208,12 @@ class MainWindow(ctk.CTk):
         bottom.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="nsew")
         bottom.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(top, text="Spam Profiles").pack(anchor="w", padx=10, pady=(10, 6))
+        header = ctk.CTkFrame(top, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=(10, 6))
+        ctk.CTkLabel(header, text="Spam Profiles").pack(side="left", anchor="w")
+        ctk.CTkButton(header, text="Options", width=96, command=self._open_options).pack(
+            side="right", anchor="e"
+        )
         table_frame = ctk.CTkFrame(top, fg_color="transparent")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
@@ -230,17 +238,23 @@ class MainWindow(ctk.CTk):
         self.profile_table.column("hotkey", width=150, anchor="center")
         self.profile_table.column("spam_key", width=100, anchor="center")
         self.profile_table.bind("<Configure>", self._on_table_resize, add="+")
+        self.profile_table.bind("<Map>", self._on_table_mapped, add="+")
 
-        table_scroll_y = ttk.Scrollbar(table_frame, orient="vertical", command=self.profile_table.yview)
-        table_scroll_x = ttk.Scrollbar(table_frame, orient="horizontal", command=self.profile_table.xview)
-        self.profile_table.configure(yscrollcommand=table_scroll_y.set, xscrollcommand=table_scroll_x.set)
+        self._table_scroll_y = ctk.CTkScrollbar(
+            table_frame,
+            orientation="vertical",
+            command=self.profile_table.yview,
+            width=10,
+        )
+        self._table_scroll_visible = True
+        self.profile_table.configure(yscrollcommand=self._on_table_yscroll)
         self.profile_table.grid(row=0, column=0, sticky="nsew")
-        table_scroll_y.grid(row=0, column=1, sticky="ns")
-        table_scroll_x.grid(row=1, column=0, sticky="ew")
+        self._table_scroll_y.grid(row=0, column=1, sticky="ns", padx=(6, 0))
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
         self._build_checkbox_images()
-        self.after(0, self._apply_responsive_column_widths)
+        self.after_idle(self._apply_responsive_column_widths)
+        self.after_idle(self._update_table_scrollbar_visibility)
 
         self.name_var = ctk.StringVar()
         self.window_title_var = ctk.StringVar()
@@ -295,6 +309,35 @@ class MainWindow(ctk.CTk):
 
     def _on_table_resize(self, _event=None) -> None:
         self._apply_responsive_column_widths()
+        self._update_table_scrollbar_visibility()
+
+    def _on_table_mapped(self, _event=None) -> None:
+        # First map often occurs before final geometry is settled; schedule one
+        # more pass so initial column widths match the real rendered size.
+        self.after_idle(self._apply_responsive_column_widths)
+        self.after_idle(self._update_table_scrollbar_visibility)
+
+    def _on_table_yscroll(self, first: str, last: str) -> None:
+        self._table_scroll_y.set(first, last)
+        self._update_table_scrollbar_visibility(first, last)
+
+    def _update_table_scrollbar_visibility(
+        self,
+        first: str | float | None = None,
+        last: str | float | None = None,
+    ) -> None:
+        if first is None or last is None:
+            first, last = self.profile_table.yview()
+        first_f = float(first)
+        last_f = float(last)
+        should_show = (last_f - first_f) < 0.999999
+        if should_show == self._table_scroll_visible:
+            return
+        self._table_scroll_visible = should_show
+        if should_show:
+            self._table_scroll_y.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+        else:
+            self._table_scroll_y.grid_remove()
 
     def _apply_responsive_column_widths(self) -> None:
         total_width = max(1, self.profile_table.winfo_width() - self._checkbox_col_width)
@@ -336,36 +379,83 @@ class MainWindow(ctk.CTk):
         return image
 
     def _open_options(self) -> None:
-        dialog = OptionsDialog(self, self._config.options, on_save=self._save_options)
+        dialog = OptionsDialog(
+            self,
+            self._config.options,
+            overlay_x=self._config.overlay.x,
+            overlay_y=self._config.overlay.y,
+            on_save=self._save_options,
+        )
         dialog.transient(self)
-        dialog.update_idletasks()
-        parent_x = self.winfo_x()
-        parent_y = self.winfo_y()
-        parent_w = self.winfo_width()
-        parent_h = self.winfo_height()
-        dialog_w = dialog.winfo_width()
-        dialog_h = dialog.winfo_height()
-        x = parent_x + max(0, (parent_w - dialog_w) // 2)
-        y = parent_y + max(0, (parent_h - dialog_h) // 2)
-        dialog.geometry(f"+{x}+{y}")
+        self._center_dialog_on_parent(dialog)
         dialog.focus()
 
-    def _save_options(self, options: AppOptions) -> None:
+    def _center_dialog_on_parent(self, dialog: tk.Toplevel) -> None:
+        self.update_idletasks()
+        dialog.update_idletasks()
+
+        parent_x = self.winfo_rootx()
+        parent_y = self.winfo_rooty()
+        parent_w = self.winfo_width()
+        parent_h = self.winfo_height()
+        dialog_w = max(dialog.winfo_width(), dialog.winfo_reqwidth())
+        dialog_h = max(dialog.winfo_height(), dialog.winfo_reqheight())
+
+        x = parent_x + max(0, (parent_w - dialog_w) // 2)
+        y = parent_y + max(0, (parent_h - dialog_h) // 2)
+
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = max(0, min(x, screen_w - dialog_w))
+        y = max(0, min(y, screen_h - dialog_h))
+        dialog.geometry(f"+{x}+{y}")
+
+    def _save_options(
+        self,
+        options: AppOptions,
+        overlay_position: tuple[int, int] | None = None,
+    ) -> None:
         previous_options = self._config.options
+        previous_overlay = (self._config.overlay.x, self._config.overlay.y)
         self._config.options = options
+        if overlay_position is not None:
+            self._config.overlay.x, self._config.overlay.y = overlay_position
         try:
             self._apply_options()
+            if overlay_position is not None:
+                self._overlay.set_position(self._config.overlay.x, self._config.overlay.y)
         except ValueError as exc:
             self._config.options = previous_options
+            self._config.overlay.x, self._config.overlay.y = previous_overlay
             self._apply_options()
+            self._overlay.set_position(self._config.overlay.x, self._config.overlay.y)
             messagebox.showerror("Options", str(exc))
             return
+        self._refresh_profile_list(selected_name=self._selected_profile_name)
+        self._apply_active_profiles_state()
         self._save_config()
 
     def _apply_options(self) -> None:
+        self._enforce_parallel_profile_policy()
         self._hotkeys.apply_profile_hotkeys(self._config.profiles)
+        self._hotkeys.apply_auto_stop_hotkeys(
+            enabled=self._config.options.auto_stop_on_key_press,
+            stop_keys=self._config.options.auto_stop_keys,
+        )
         self._overlay.set_lock(self._config.options.lock_overlay)
         self._sync_overlay_visibility()
+
+    def _enforce_parallel_profile_policy(self) -> None:
+        if self._config.options.allow_parallel:
+            return
+        seen_active = False
+        for profile in self._config.profiles:
+            if not profile.is_active:
+                continue
+            if not seen_active:
+                seen_active = True
+                continue
+            profile.is_active = False
 
     def _schedule_overlay_sync(self) -> None:
         self._sync_overlay_visibility()
@@ -628,6 +718,7 @@ class MainWindow(ctk.CTk):
                     profile.spam_key,
                 ),
             )
+        self.after_idle(self._update_table_scrollbar_visibility)
         target = selected_name or self._selected_profile_name
         if not target:
             return
@@ -683,7 +774,27 @@ class MainWindow(ctk.CTk):
         if index < 0 or index >= len(self._config.profiles):
             return
         profile = self._config.profiles[index]
-        profile.is_active = not profile.is_active
+        next_active = not profile.is_active
+        if not self._config.options.allow_parallel and next_active:
+            for i, item in enumerate(self._config.profiles):
+                item.is_active = i == index
+        else:
+            profile.is_active = next_active
+        self._refresh_profile_list(selected_name=self._selected_profile_name)
+        self._apply_active_profiles_state()
+        self._save_config()
+
+    def _on_auto_stop_hotkey(self) -> None:
+        self.after(0, self._stop_all_active_profiles)
+
+    def _stop_all_active_profiles(self) -> None:
+        changed = False
+        for profile in self._config.profiles:
+            if profile.is_active:
+                profile.is_active = False
+                changed = True
+        if not changed:
+            return
         self._refresh_profile_list(selected_name=self._selected_profile_name)
         self._apply_active_profiles_state()
         self._save_config()

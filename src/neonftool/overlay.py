@@ -97,6 +97,11 @@ class OverlayWindow(ctk.CTkToplevel):
     def get_position(self) -> tuple[int, int]:
         return self._center_x, self._center_y
 
+    def set_position(self, x: int, y: int) -> None:
+        self._center_x = int(x)
+        self._center_y = int(y)
+        self._resize_to_text(self.profile_label.cget("text"))
+
     def keep_topmost_without_focus(self) -> None:
         hwnd = self.winfo_id()
         _USER32.SetWindowPos(

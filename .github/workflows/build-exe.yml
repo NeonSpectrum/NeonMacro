@@ -44,6 +44,15 @@ jobs:
         shell: pwsh
         run: |
           $iconPath = "assets\icons\logo.ico"
+          if (!(Test-Path $iconPath)) {
+            $ctkIconPath = python -c "import customtkinter, pathlib; print(pathlib.Path(customtkinter.__file__).resolve().parent / 'assets' / 'icons' / 'CustomTkinter_icon_Windows.ico')"
+            $ctkIconPath = $ctkIconPath.Trim()
+            if (Test-Path $ctkIconPath) {
+              $iconPath = $ctkIconPath
+            } else {
+              $iconPath = $null
+            }
+          }
           New-Item -ItemType Directory -Force -Path "build" | Out-Null
           $launcherPath = "build\nuitka_entry.py"
           @(
@@ -61,8 +70,8 @@ jobs:
             "--output-dir=build\dist"
           )
 
-          # Use custom app icon when logo.ico exists.
-          if (Test-Path $iconPath) {
+          # Prefer project icon, fallback to CustomTkinter icon.
+          if ($iconPath -and (Test-Path $iconPath)) {
             $commonArgs += "--windows-icon-from-ico=$iconPath"
           }
 

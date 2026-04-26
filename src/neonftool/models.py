@@ -4,6 +4,28 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+DEFAULT_AUTO_STOP_KEYS: list[str] = [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+]
+
+
 @dataclass
 class SpamProfile:
     name: str
@@ -34,6 +56,9 @@ class SpamProfile:
 class AppOptions:
     enable_overlay: bool = True
     lock_overlay: bool = False
+    allow_parallel: bool = True
+    auto_stop_on_key_press: bool = False
+    auto_stop_keys: list[str] = field(default_factory=lambda: list(DEFAULT_AUTO_STOP_KEYS))
     allowed_applications: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,9 +68,14 @@ class AppOptions:
     def from_dict(cls, data: dict[str, Any]) -> "AppOptions":
         apps = data.get("allowed_applications", [])
         normalized_apps = [str(item) for item in apps if str(item).strip()]
+        stop_keys = data.get("auto_stop_keys", DEFAULT_AUTO_STOP_KEYS)
+        normalized_stop_keys = [str(item).strip() for item in stop_keys if str(item).strip()]
         return cls(
             enable_overlay=bool(data.get("enable_overlay", True)),
             lock_overlay=bool(data.get("lock_overlay", False)),
+            allow_parallel=bool(data.get("allow_parallel", True)),
+            auto_stop_on_key_press=bool(data.get("auto_stop_on_key_press", False)),
+            auto_stop_keys=normalized_stop_keys,
             allowed_applications=normalized_apps,
         )
 
