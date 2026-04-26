@@ -1,0 +1,53 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install nuitka ordered-set zstandard
+
+      - name: Build executable with Nuitka
+        shell: pwsh
+        run: |
+          $iconPath = "assets\icons\logo.ico"
+          $nuitkaArgs = @(
+            "--onefile",
+            "--standalone",
+            "--assume-yes-for-downloads",
+            "--enable-plugin=tk-inter",
+            "--windows-console-mode=disable",
+            "--output-dir=build\dist"
+          )
+
+          # Use custom app icon when logo.ico exists.
+          if (Test-Path $iconPath) {
+            $nuitkaArgs += "--windows-icon-from-ico=$iconPath"
+          }
+
+          $nuitkaArgs += "src\neonftool\app.py"
+          python -m nuitka @nuitkaArgs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neonftool-exe
+          path: build/dist/*.exe

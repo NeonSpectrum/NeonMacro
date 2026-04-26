@@ -1,0 +1,719 @@
+from __future__ import annotations
+
+import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox
+from tkinter import ttk
+
+import customtkinter as ctk
+import psutil
+import win32con
+import win32gui
+import win32process
+
+from ..config import ConfigStore
+from ..hotkeys import HotkeyManager
+from ..keymaps import normalize_spam_key_combo
+from ..models import AppOptions, SpamProfile
+from ..overlay import OverlayWindow
+from ..spam_engine import EngineStatus, SpamEngine
+from .dialogs import OptionsDialog
+
+
+class MainWindow(ctk.CTk):
+    def __init__(self, config_path: Path) -> None:
+        super().__init__()
+        self.title("NeonFtool")
+        self._default_width = 920
+        self._default_height = 900
+        self.geometry(f"{self._default_width}x{self._default_height}")
+        self._center_on_screen(self._default_width, self._default_height)
+
+        self._store = ConfigStore(config_path)
+        self._config = self._store.load()
+
+        self._engine = SpamEngine(
+            allowed_executables_supplier=lambda: self._config.options.allowed_applications,
+            on_tick=self._on_engine_tick,
+            on_error=self._on_engine_error,
+        )
+        self._hotkeys = HotkeyManager(
+            on_profile_hotkey=self._on_profile_selected_by_hotkey,
+        )
+        self._overlay = OverlayWindow(
+            self,
+            x=self._config.overlay.x,
+            y=self._config.overlay.y,
+            lock_overlay=self._config.options.lock_overlay,
+            on_position_changed=self._on_overlay_position_changed,
+        )
+        self._overlay_sync_job: str | None = None
+        self._theme_sync_job: str | None = None
+        self._overlay_position_save_job: str | None = None
+        self._pending_overlay_center: tuple[int, int] | None = None
+        self._last_engine_error_message: str = ""
+        self._last_engine_error_at: float = 0.0
+        self._last_appearance_mode: str = ""
+        self._column_ratios: dict[str, float] = {
+            "name": 0.25,
+            "window_title": 0.30,
+            "interval": 0.11,
+            "hotkey": 0.16,
+            "spam_key": 0.12,
+        }
+        self._column_min_widths: dict[str, int] = {
+            "name": 150,
+            "window_title": 180,
+            "interval": 90,
+            "hotkey": 110,
+            "spam_key": 90,
+        }
+        self._checkbox_col_width = 52
+
+        self._selected_profile_name: str | None = None
+        self._overlay_has_active_spam = False
+        self._startup_hotkey_issues: list[str] = []
+        self._sanitize_profile_hotkeys_on_startup()
+        self._build_menu()
+        self._apply_table_theme()
+        self._build_layout()
+        self._bind_events()
+        self._refresh_profile_list()
+        self._apply_active_profiles_state()
+        try:
+            self._apply_options()
+        except ValueError as exc:
+            messagebox.showerror("Hotkey validation", str(exc))
+        self._engine.start()
+        self._schedule_overlay_sync()
+        self._schedule_theme_sync()
+        if self._startup_hotkey_issues:
+            details = "\n".join(f"- {item}" for item in self._startup_hotkey_issues)
+            messagebox.showerror(
+                "Hotkey validation",
+                "Some profile hotkeys were removed because they are unavailable:\n\n"
+                f"{details}",
+            )
+
+    def _center_on_screen(self, width: int, height: int) -> None:
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _apply_table_theme(self) -> None:
+        appearance = ctk.get_appearance_mode().lower()
+        is_dark = appearance == "dark"
+
+        if is_dark:
+            bg = "#1f1f1f"
+            fg = "#f2f2f2"
+            heading_bg = "#2a2a2a"
+            selected_bg = "#1f6aa5"
+        else:
+            bg = "#ffffff"
+            fg = "#111111"
+            heading_bg = "#ececec"
+            selected_bg = "#2f80ed"
+
+        style = ttk.Style(self)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        style.configure(
+            "Neon.Treeview",
+            background=bg,
+            fieldbackground=bg,
+            foreground=fg,
+            rowheight=30,
+            borderwidth=0,
+        )
+        style.configure(
+            "Neon.Treeview.Heading",
+            background=heading_bg,
+            foreground=fg,
+            relief="flat",
+        )
+        style.map(
+            "Neon.Treeview",
+            background=[("selected", selected_bg)],
+            foreground=[("selected", "#ffffff")],
+        )
+        style.map(
+            "Neon.Treeview.Heading",
+            background=[("active", heading_bg)],
+            foreground=[("active", fg)],
+        )
+        self._last_appearance_mode = appearance
+
+    def _sanitize_profile_hotkeys_on_startup(self) -> None:
+        seen: dict[str, str] = {}
+        removed_any = False
+        for profile in self._config.profiles:
+            raw = profile.select_hotkey.strip()
+            if not raw:
+                continue
+            normalized = self._hotkeys.normalize_hotkey(raw)
+            if not normalized:
+                self._startup_hotkey_issues.append(
+                    f"{profile.name}: '{raw}' has invalid format."
+                )
+                profile.select_hotkey = ""
+                removed_any = True
+                continue
+            if normalized in seen:
+                self._startup_hotkey_issues.append(
+                    f"{profile.name}: '{raw}' duplicates {seen[normalized]}."
+                )
+                profile.select_hotkey = ""
+                removed_any = True
+                continue
+            if not self._hotkeys.can_bind_hotkey(normalized):
+                self._startup_hotkey_issues.append(
+                    f"{profile.name}: '{raw}' is already used by Windows/another app."
+                )
+                profile.select_hotkey = ""
+                removed_any = True
+                continue
+            seen[normalized] = profile.name
+            profile.select_hotkey = normalized.upper()
+        if removed_any:
+            self._store.save(self._config)
+
+    def _build_menu(self) -> None:
+        def _menu_label(text: str, width: int = 18) -> str:
+            return f"{text:<{width}}"
+
+        menu = tk.Menu(self)
+        file_menu = tk.Menu(menu, tearoff=0)
+        file_menu.add_command(label=_menu_label("Exit"), command=self._on_exit)
+        menu.add_cascade(label="File", menu=file_menu)
+
+        tools_menu = tk.Menu(menu, tearoff=0)
+        tools_menu.add_command(label=_menu_label("Options"), command=self._open_options)
+        menu.add_cascade(label="Tools", menu=tools_menu)
+        self.configure(menu=menu)
+
+    def _build_layout(self) -> None:
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        top = ctk.CTkFrame(self)
+        top.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="nsew")
+        bottom = ctk.CTkFrame(self)
+        bottom.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="nsew")
+        bottom.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(top, text="Spam Profiles").pack(anchor="w", padx=10, pady=(10, 6))
+        table_frame = ctk.CTkFrame(top, fg_color="transparent")
+        table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+
+        columns = ("name", "window_title", "interval", "hotkey", "spam_key")
+        self.profile_table = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show=("tree", "headings"),
+            selectmode="browse",
+            style="Neon.Treeview",
+        )
+        self.profile_table.heading("#0", text="")
+        self.profile_table.column("#0", width=self._checkbox_col_width, anchor="center", stretch=False)
+        self.profile_table.heading("name", text="Name")
+        self.profile_table.heading("window_title", text="Window Title")
+        self.profile_table.heading("interval", text="Interval")
+        self.profile_table.heading("hotkey", text="Hotkey")
+        self.profile_table.heading("spam_key", text="Spam Key")
+        self.profile_table.column("name", width=180, anchor="w")
+        self.profile_table.column("window_title", width=340, anchor="w")
+        self.profile_table.column("interval", width=110, anchor="center")
+        self.profile_table.column("hotkey", width=150, anchor="center")
+        self.profile_table.column("spam_key", width=100, anchor="center")
+        self.profile_table.bind("<Configure>", self._on_table_resize, add="+")
+
+        table_scroll_y = ttk.Scrollbar(table_frame, orient="vertical", command=self.profile_table.yview)
+        table_scroll_x = ttk.Scrollbar(table_frame, orient="horizontal", command=self.profile_table.xview)
+        self.profile_table.configure(yscrollcommand=table_scroll_y.set, xscrollcommand=table_scroll_x.set)
+        self.profile_table.grid(row=0, column=0, sticky="nsew")
+        table_scroll_y.grid(row=0, column=1, sticky="ns")
+        table_scroll_x.grid(row=1, column=0, sticky="ew")
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+        self._build_checkbox_images()
+        self.after(0, self._apply_responsive_column_widths)
+
+        self.name_var = ctk.StringVar()
+        self.window_title_var = ctk.StringVar()
+        self.use_regex_var = ctk.BooleanVar(value=False)
+        self.spam_key_var = ctk.StringVar(value="1")
+
+        ctk.CTkLabel(bottom, text="Spam Name").grid(row=1, column=0, sticky="w", padx=10, pady=(10, 2))
+        ctk.CTkEntry(bottom, textvariable=self.name_var).grid(
+            row=2, column=0, sticky="ew", padx=10, pady=(0, 8)
+        )
+        ctk.CTkLabel(bottom, text="Window Title / Regex").grid(row=3, column=0, sticky="w", padx=10, pady=(0, 2))
+        ctk.CTkEntry(bottom, textvariable=self.window_title_var).grid(
+            row=4, column=0, sticky="ew", padx=10, pady=(0, 4)
+        )
+        ctk.CTkCheckBox(bottom, text="Use regex", variable=self.use_regex_var).grid(
+            row=5, column=0, sticky="w", padx=10, pady=(0, 8)
+        )
+
+        ctk.CTkLabel(bottom, text="Interval (ms)").grid(row=6, column=0, sticky="w", padx=10, pady=(0, 2))
+        self.interval_entry = ctk.CTkEntry(bottom, placeholder_text="250")
+        self.interval_entry.grid(
+            row=7, column=0, sticky="ew", padx=10, pady=(0, 8)
+        )
+        ctk.CTkLabel(bottom, text="Hotkey").grid(
+            row=8, column=0, sticky="w", padx=10, pady=(0, 2)
+        )
+        self.hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="CTRL+1")
+        self.hotkey_entry.grid(
+            row=9, column=0, sticky="ew", padx=10, pady=(0, 8)
+        )
+        ctk.CTkLabel(bottom, text="Spam Key").grid(row=10, column=0, sticky="w", padx=10, pady=(0, 2))
+        self.spam_key_entry = ctk.CTkEntry(bottom, textvariable=self.spam_key_var, placeholder_text="F1")
+        self.spam_key_entry.grid(
+            row=11, column=0, sticky="ew", padx=10, pady=(0, 8)
+        )
+
+        button_row = ctk.CTkFrame(bottom, fg_color="transparent")
+        button_row.grid(row=12, column=0, sticky="ew", padx=10, pady=(0, 8))
+        ctk.CTkButton(button_row, text="Add", command=self._add_profile).pack(side="left")
+        ctk.CTkButton(button_row, text="Update", command=self._update_selected).pack(side="left", padx=6)
+        ctk.CTkButton(button_row, text="Delete", command=self._delete_selected).pack(side="left")
+
+        self.status_var = ctk.StringVar(value="Current Spam: None | Status: Inactive")
+        ctk.CTkLabel(bottom, textvariable=self.status_var, anchor="w").grid(
+            row=13, column=0, sticky="ew", padx=10, pady=(4, 10)
+        )
+
+    def _bind_events(self) -> None:
+        self.profile_table.bind("<<TreeviewSelect>>", self._on_table_selected)
+        self.profile_table.bind("<Button-1>", self._on_table_click, add="+")
+        self.protocol("WM_DELETE_WINDOW", self._on_exit)
+
+    def _on_table_resize(self, _event=None) -> None:
+        self._apply_responsive_column_widths()
+
+    def _apply_responsive_column_widths(self) -> None:
+        total_width = max(1, self.profile_table.winfo_width() - self._checkbox_col_width)
+        columns = ("name", "window_title", "interval", "hotkey", "spam_key")
+        computed: dict[str, int] = {}
+        used = 0
+        for column in columns[:-1]:
+            width = int(total_width * self._column_ratios[column])
+            width = max(self._column_min_widths[column], width)
+            computed[column] = width
+            used += width
+        last = columns[-1]
+        computed[last] = max(self._column_min_widths[last], total_width - used)
+
+        for column in columns:
+            self.profile_table.column(column, width=computed[column], stretch=True)
+
+    def _build_checkbox_images(self) -> None:
+        self._checkbox_images = {
+            False: self._create_checkbox_image(checked=False),
+            True: self._create_checkbox_image(checked=True),
+        }
+
+    def _create_checkbox_image(self, checked: bool) -> tk.PhotoImage:
+        image = tk.PhotoImage(width=18, height=18)
+        image.put("#9ca3af", to=(0, 0, 17, 17))
+        image.put("#ffffff", to=(1, 1, 16, 16))
+        if checked:
+            image.put("#22c55e", to=(1, 1, 16, 16))
+            check_points = [
+                (3, 9), (4, 10), (5, 11), (6, 12), (7, 13),
+                (8, 12), (9, 11), (10, 10), (11, 9),
+                (12, 8), (13, 7), (14, 6), (15, 5),
+            ]
+            for x, y in check_points:
+                image.put("#14532d", to=(x, y, x, y))
+                if y + 1 < 18:
+                    image.put("#14532d", to=(x, y + 1, x, y + 1))
+        return image
+
+    def _open_options(self) -> None:
+        dialog = OptionsDialog(self, self._config.options, on_save=self._save_options)
+        dialog.transient(self)
+        dialog.update_idletasks()
+        parent_x = self.winfo_x()
+        parent_y = self.winfo_y()
+        parent_w = self.winfo_width()
+        parent_h = self.winfo_height()
+        dialog_w = dialog.winfo_width()
+        dialog_h = dialog.winfo_height()
+        x = parent_x + max(0, (parent_w - dialog_w) // 2)
+        y = parent_y + max(0, (parent_h - dialog_h) // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.focus()
+
+    def _save_options(self, options: AppOptions) -> None:
+        previous_options = self._config.options
+        self._config.options = options
+        try:
+            self._apply_options()
+        except ValueError as exc:
+            self._config.options = previous_options
+            self._apply_options()
+            messagebox.showerror("Options", str(exc))
+            return
+        self._save_config()
+
+    def _apply_options(self) -> None:
+        self._hotkeys.apply_profile_hotkeys(self._config.profiles)
+        self._overlay.set_lock(self._config.options.lock_overlay)
+        self._sync_overlay_visibility()
+
+    def _schedule_overlay_sync(self) -> None:
+        self._sync_overlay_visibility()
+        self._overlay_sync_job = self.after(150, self._schedule_overlay_sync)
+
+    def _schedule_theme_sync(self) -> None:
+        current = ctk.get_appearance_mode().lower()
+        if current != self._last_appearance_mode:
+            self._apply_table_theme()
+        self._theme_sync_job = self.after(500, self._schedule_theme_sync)
+
+    def _is_app_focused(self) -> bool:
+        try:
+            foreground = win32gui.GetForegroundWindow()
+        except win32gui.error:
+            return False
+        if foreground == 0:
+            return False
+        roots = (self.winfo_id(), self._overlay.winfo_id())
+        try:
+            foreground_root = win32gui.GetAncestor(foreground, win32con.GA_ROOT)
+        except win32gui.error:
+            foreground_root = foreground
+        if foreground_root in roots:
+            return True
+        for root in roots:
+            if foreground == root:
+                return True
+            try:
+                if win32gui.IsChild(root, foreground):
+                    return True
+            except win32gui.error:
+                continue
+        return False
+
+    def _sync_overlay_visibility(self) -> None:
+        allowed_app_focused = self._is_allowed_application_focused()
+        should_show = (
+            self._config.options.enable_overlay
+            and self.state() != "iconic"
+            and self._overlay_has_active_spam
+            and allowed_app_focused
+        )
+        if should_show:
+            self._overlay.deiconify()
+            self._overlay.attributes("-topmost", True)
+            self._overlay.keep_topmost_without_focus()
+        else:
+            self._overlay.withdraw()
+
+    def _is_allowed_application_focused(self) -> bool:
+        allowed = {
+            app.strip().lower()
+            for app in self._config.options.allowed_applications
+            if app.strip()
+        }
+        # No app filter configured: don't block overlay visibility.
+        if not allowed:
+            return True
+        try:
+            foreground = win32gui.GetForegroundWindow()
+            if foreground == 0:
+                return False
+            _, process_id = win32process.GetWindowThreadProcessId(foreground)
+            exe_name = psutil.Process(process_id).name().lower()
+        except (win32gui.error, win32process.error, psutil.Error):
+            return False
+        return exe_name in allowed
+
+    def _parse_profile_from_form(self) -> SpamProfile | None:
+        name = self.name_var.get().strip()
+        title = self.window_title_var.get().strip()
+        hotkey = self.hotkey_entry.get().strip().upper()
+        spam_key = self.spam_key_var.get().strip()
+        if not name:
+            messagebox.showerror("Validation", "Spam name is required.")
+            return None
+        if not title:
+            messagebox.showerror("Validation", "Window title pattern is required.")
+            return None
+        if not hotkey:
+            messagebox.showerror("Validation", "Hotkey is required.")
+            return None
+        normalized_hotkey = self._hotkeys.normalize_hotkey(hotkey)
+        if not normalized_hotkey:
+            messagebox.showerror("Validation", "Hotkey format is invalid.")
+            return None
+        if not spam_key:
+            messagebox.showerror("Validation", "Spam key is required.")
+            return None
+        try:
+            canonical_spam_key, _ = normalize_spam_key_combo(spam_key)
+        except ValueError as exc:
+            messagebox.showerror("Validation", str(exc))
+            return None
+        try:
+            interval = max(10, int(self.interval_entry.get().strip()))
+        except ValueError:
+            messagebox.showerror("Validation", "Interval must be a number.")
+            return None
+        return SpamProfile(
+            name=name,
+            window_title=title,
+            use_regex=self.use_regex_var.get(),
+            spam_key=canonical_spam_key,
+            interval_ms=interval,
+            select_hotkey=normalized_hotkey.upper(),
+            is_active=False,
+        )
+
+    def _add_profile(self) -> None:
+        profile = self._parse_profile_from_form()
+        if profile is None:
+            return
+        if any(item.name == profile.name for item in self._config.profiles):
+            messagebox.showerror("Validation", "Spam name must be unique.")
+            return
+        if any(
+            self._hotkeys.normalize_hotkey(item.select_hotkey) == self._hotkeys.normalize_hotkey(profile.select_hotkey)
+            for item in self._config.profiles
+        ):
+            messagebox.showerror("Validation", f"Hotkey '{profile.select_hotkey}' is already used by another profile.")
+            return
+        self._config.profiles.append(profile)
+        self._refresh_profile_list()
+        self._apply_options()
+        self._apply_active_profiles_state()
+        self._save_config()
+
+    def _update_selected(self) -> None:
+        index = self._selected_index()
+        if index is None:
+            messagebox.showerror("Update", "Select a profile first.")
+            return
+        profile = self._parse_profile_from_form()
+        if profile is None:
+            return
+        existing_name = self._config.profiles[index].name
+        profile.is_active = self._config.profiles[index].is_active
+        if profile.name != existing_name and any(item.name == profile.name for item in self._config.profiles):
+            messagebox.showerror("Validation", "Spam name must be unique.")
+            return
+        if any(
+            i != index
+            and self._hotkeys.normalize_hotkey(item.select_hotkey)
+            == self._hotkeys.normalize_hotkey(profile.select_hotkey)
+            for i, item in enumerate(self._config.profiles)
+        ):
+            messagebox.showerror("Validation", f"Hotkey '{profile.select_hotkey}' is already used by another profile.")
+            return
+        self._config.profiles[index] = profile
+        if self._selected_profile_name == existing_name:
+            self._selected_profile_name = profile.name
+        self._refresh_profile_list(selected_name=profile.name)
+        self._apply_options()
+        self._apply_active_profiles_state()
+        self._save_config()
+
+    def _delete_selected(self) -> None:
+        index = self._selected_index()
+        if index is None:
+            return
+        name = self._config.profiles[index].name
+        del self._config.profiles[index]
+        if self._selected_profile_name == name:
+            self._selected_profile_name = None
+            self._clear_form()
+        self._refresh_profile_list()
+        self._apply_options()
+        self._apply_active_profiles_state()
+        self._save_config()
+
+    def _on_table_selected(self, _event=None) -> None:
+        index = self._selected_index()
+        if index is None:
+            return
+        profile = self._config.profiles[index]
+        self._selected_profile_name = profile.name
+        self.name_var.set(profile.name)
+        self.window_title_var.set(profile.window_title)
+        self.use_regex_var.set(profile.use_regex)
+        self.spam_key_var.set(profile.spam_key)
+        self.interval_entry.delete(0, tk.END)
+        self.interval_entry.insert(0, str(profile.interval_ms))
+        self.hotkey_entry.delete(0, tk.END)
+        self.hotkey_entry.insert(0, profile.select_hotkey.upper())
+
+    def _on_table_click(self, event) -> None:
+        row_id = self.profile_table.identify_row(event.y)
+        col_id = self.profile_table.identify_column(event.x)
+        if row_id and col_id == "#0":
+            index = self.profile_table.index(row_id)
+            self._toggle_profile_active(index)
+            return "break"
+        if row_id:
+            return
+        self.profile_table.selection_remove(self.profile_table.selection())
+        self.profile_table.focus("")
+        self._selected_profile_name = None
+        self._clear_form()
+        self._save_config()
+
+    def _on_profile_selected_by_hotkey(self, profile_name: str) -> None:
+        self.after(0, lambda: self._toggle_profile_by_hotkey(profile_name))
+
+    def _toggle_profile_by_hotkey(self, profile_name: str) -> None:
+        for index, profile in enumerate(self._config.profiles):
+            if profile.name == profile_name:
+                self._toggle_profile_active(index)
+                return
+
+    def _apply_active_profiles_state(self) -> None:
+        active_profiles = [profile for profile in self._config.profiles if profile.is_active]
+        self._engine.set_active_profiles(active_profiles)
+        self._engine.set_enabled(bool(active_profiles))
+        self._hotkeys.apply_profile_hotkeys(self._config.profiles)
+        self._update_status_text(self._engine.status)
+
+    def _on_engine_tick(self, status: EngineStatus) -> None:
+        self.after(0, lambda: self._update_status_text(status))
+
+    def _on_engine_error(self, message: str) -> None:
+        self.after(0, lambda: self._show_engine_error(message))
+
+    def _show_engine_error(self, message: str) -> None:
+        now = self.tk.call("clock", "seconds")
+        if message == self._last_engine_error_message and (float(now) - self._last_engine_error_at) < 3:
+            return
+        self._last_engine_error_message = message
+        self._last_engine_error_at = float(now)
+        messagebox.showerror("Spam key validation", message)
+
+    def _update_status_text(self, status: EngineStatus) -> None:
+        active_names = status.active_profile_names or []
+        if not active_names:
+            shown = "None"
+        elif len(active_names) <= 3:
+            shown = ", ".join(active_names)
+        else:
+            shown = ", ".join(active_names[:3]) + f" (+{len(active_names) - 3})"
+        label = "Active" if status.enabled and bool(active_names) else "Inactive"
+        self._overlay_has_active_spam = status.enabled and bool(active_names)
+        self.status_var.set(f"Current Spam: {shown} | Status: {label}")
+        self._overlay.set_text(active_names, status.enabled and bool(active_names))
+        self._sync_overlay_visibility()
+
+    def _refresh_profile_list(self, selected_name: str | None = None) -> None:
+        for item_id in self.profile_table.get_children():
+            self.profile_table.delete(item_id)
+        for profile in self._config.profiles:
+            self.profile_table.insert(
+                "",
+                tk.END,
+                image=self._checkbox_images[profile.is_active],
+                values=(
+                    profile.name,
+                    profile.window_title,
+                    profile.interval_ms,
+                    profile.select_hotkey.upper(),
+                    profile.spam_key,
+                ),
+            )
+        target = selected_name or self._selected_profile_name
+        if not target:
+            return
+        for index, profile in enumerate(self._config.profiles):
+            if profile.name == target:
+                self._select_table_row(index)
+                self._on_table_selected()
+                break
+
+    def _selected_index(self) -> int | None:
+        selected = self.profile_table.selection()
+        if not selected:
+            return None
+        item_id = selected[0]
+        try:
+            return self.profile_table.index(item_id)
+        except tk.TclError:
+            return None
+
+    def _select_table_row(self, index: int) -> None:
+        children = self.profile_table.get_children()
+        if index < 0 or index >= len(children):
+            return
+        item_id = children[index]
+        self.profile_table.selection_set(item_id)
+        self.profile_table.focus(item_id)
+        self.profile_table.see(item_id)
+
+    def _save_config(self) -> None:
+        x, y = self._overlay.get_position()
+        self._config.overlay.x = x
+        self._config.overlay.y = y
+        self._config.selected_profile_name = self._selected_profile_name
+        self._store.save(self._config)
+
+    def _on_overlay_position_changed(self, center_x: int, center_y: int) -> None:
+        self._pending_overlay_center = (center_x, center_y)
+        if self._overlay_position_save_job is not None:
+            self.after_cancel(self._overlay_position_save_job)
+        self._overlay_position_save_job = self.after(1000, self._save_overlay_position_debounced)
+
+    def _save_overlay_position_debounced(self) -> None:
+        self._overlay_position_save_job = None
+        if self._pending_overlay_center is None:
+            return
+        center_x, center_y = self._pending_overlay_center
+        self._pending_overlay_center = None
+        self._config.overlay.x = center_x
+        self._config.overlay.y = center_y
+        self._save_config()
+
+    def _toggle_profile_active(self, index: int) -> None:
+        if index < 0 or index >= len(self._config.profiles):
+            return
+        profile = self._config.profiles[index]
+        profile.is_active = not profile.is_active
+        self._refresh_profile_list(selected_name=self._selected_profile_name)
+        self._apply_active_profiles_state()
+        self._save_config()
+
+    def _clear_form(self) -> None:
+        self.name_var.set("")
+        self.window_title_var.set("")
+        self.use_regex_var.set(False)
+        self.spam_key_var.set("1")
+        self.interval_entry.delete(0, tk.END)
+        self.hotkey_entry.delete(0, tk.END)
+
+    def _on_exit(self) -> None:
+        if self._overlay_sync_job is not None:
+            self.after_cancel(self._overlay_sync_job)
+            self._overlay_sync_job = None
+        if self._theme_sync_job is not None:
+            self.after_cancel(self._theme_sync_job)
+            self._theme_sync_job = None
+        if self._overlay_position_save_job is not None:
+            self.after_cancel(self._overlay_position_save_job)
+            self._overlay_position_save_job = None
+        if self._pending_overlay_center is not None:
+            center_x, center_y = self._pending_overlay_center
+            self._config.overlay.x = center_x
+            self._config.overlay.y = center_y
+            self._pending_overlay_center = None
+        self._save_config()
+        self._engine.stop()
+        self._hotkeys.shutdown()
+        self._overlay.destroy()
+        self.destroy()
+
