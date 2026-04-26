@@ -63,7 +63,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "build" | Out-Null
           $launcherPath = "build\nuitka_entry.py"
           @(
-            "from neonftool.app import main",
+            "from neonmacro.app import main",
             "",
             "if __name__ == '__main__':",
             "    main()"
@@ -74,7 +74,7 @@ jobs:
             "--standalone",
             "--assume-yes-for-downloads",
             "--enable-plugin=tk-inter",
-            "--include-package=neonftool",
+            "--include-package=neonmacro",
             "--output-dir=build\dist"
           )
 
@@ -82,27 +82,32 @@ jobs:
           if ($iconPath -and (Test-Path $iconPath)) {
             $commonArgs += "--windows-icon-from-ico=$iconPath"
             # Bundle the runtime window icon so Tk can set titlebar/taskbar icon.
-            $commonArgs += "--include-data-files=$iconPath=neonftool/assets/icons/logo.ico"
+            $commonArgs += "--include-data-files=$iconPath=neonmacro/assets/icons/logo.ico"
+            $logoPngPath = "assets\icons\logo.png"
+            if (Test-Path $logoPngPath) {
+              # Bundle PNG runtime icon for tk.iconphoto, which can render more clearly.
+              $commonArgs += "--include-data-files=$logoPngPath=neonmacro/assets/icons/logo.png"
+            }
           }
 
           $buildArgs = @(
             "--windows-console-mode=disable",
-            "--output-filename=NeonFtool.exe"
+            "--output-filename=NeonMacro.exe"
           ) + $commonArgs + @($launcherPath)
           python -m poetry run python -m nuitka @buildArgs
 
       - name: Verify built executable exists
         shell: pwsh
         run: |
-          if (!(Test-Path "build\dist\NeonFtool.exe")) {
-            throw "Expected build\dist\NeonFtool.exe to exist, but it was not found."
+          if (!(Test-Path "build\dist\NeonMacro.exe")) {
+            throw "Expected build\dist\NeonMacro.exe to exist, but it was not found."
           }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: neonftool-exe
-          path: build/dist/NeonFtool.exe
+          name: neonmacro-exe
+          path: build/dist/NeonMacro.exe
 
   release:
     needs: build
@@ -113,7 +118,7 @@ jobs:
       - name: Download GUI artifact
         uses: actions/download-artifact@v4
         with:
-          name: neonftool-exe
+          name: neonmacro-exe
           path: build/dist
 
       - name: Publish pre-release from main
@@ -122,7 +127,7 @@ jobs:
         with:
           tag_name: main-ci
           target_commitish: ${{ github.sha }}
-          name: NeonFtool Pre-release (main)
+          name: NeonMacro Pre-release (main)
           prerelease: true
           make_latest: false
           generate_release_notes: false
@@ -130,15 +135,15 @@ jobs:
             Automated pre-release build from `main`.
             Includes the latest GUI executable.
           files: |
-            build/dist/NeonFtool.exe
+            build/dist/NeonMacro.exe
 
       - name: Publish release from tag
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: NeonFtool ${{ github.ref_name }}
+          name: NeonMacro ${{ github.ref_name }}
           prerelease: false
           generate_release_notes: true
           files: |
-            build/dist/NeonFtool.exe
+            build/dist/NeonMacro.exe

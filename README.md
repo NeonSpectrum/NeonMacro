@@ -1,6 +1,6 @@
-# NeonFtool
+# NeonMacro
 
-NeonFtool is a Windows desktop app (built with CustomTkinter) for creating configurable key-spam profiles. It targets windows by title and sends keys through the Win32 `PostMessage` API.
+NeonMacro is a Windows desktop app (built with CustomTkinter) for creating configurable key-spam profiles. It targets windows by title and sends keys through the Win32 `PostMessage` API.
 
 ## What it does
 
@@ -28,7 +28,7 @@ NeonFtool is a Windows desktop app (built with CustomTkinter) for creating confi
 
 ```powershell
 poetry install
-poetry run neonftool
+poetry run neonmacro
 ```
 
 If Poetry is not installed yet:
@@ -41,14 +41,14 @@ pipx install poetry
 
 ```powershell
 poetry add --group dev nuitka ordered-set zstandard
-poetry run python -m nuitka --onefile --standalone --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonftool\app.py
+poetry run python -m nuitka --onefile --standalone --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonmacro\app.py
 ```
 
 Build output is written under `build\dist`.
 
 ## Basic usage
 
-1. Launch `neonftool`.
+1. Launch `neonmacro`.
 2. Create at least one profile and set:
    - Target window title pattern
    - Key and interval

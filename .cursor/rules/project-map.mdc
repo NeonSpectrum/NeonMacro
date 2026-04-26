@@ -1,15 +1,15 @@
 ---
-description: Short project map for NeonFtool feature routing
+description: Short project map for NeonMacro feature routing
 alwaysApply: true
 ---
 
-# NeonFtool Project Map
+# NeonMacro Project Map
 
 - Purpose: Windows CustomTkinter desktop tool for profile-based key spamming to target apps via Win32 PostMessage.
-- App entry: src/neonftool/app.py (single-instance guard, logging setup, launches MainWindow).
-- Main feature hub: src/neonftool/ui/main_window.py (profile CRUD, hotkeys, engine state, options, overlay visibility logic).
-- Core runtime pieces: src/neonftool/core/spam_engine.py (send loop), src/neonftool/core/hotkeys.py (global/profile hotkeys), src/neonftool/core/config.py (JSON load/save).
-- Overlay + targeting: src/neonftool/core/overlay.py, src/neonftool/ui/overlay_controller.py, src/neonftool/targeting/window_targeting.py.
+- App entry: src/neonmacro/app.py (single-instance guard, logging setup, launches MainWindow).
+- Main feature hub: src/neonmacro/ui/main_window.py (profile CRUD, hotkeys, engine state, options, overlay visibility logic).
+- Core runtime pieces: src/neonmacro/core/spam_engine.py (send loop), src/neonmacro/core/hotkeys.py (global/profile hotkeys), src/neonmacro/core/config.py (JSON load/save).
+- Overlay + targeting: src/neonmacro/core/overlay.py, src/neonmacro/ui/overlay_controller.py, src/neonmacro/targeting/window_targeting.py.
 
 # Maintenance Rule
 

@@ -33,6 +33,6 @@ class SpamProfile:
             use_regex=bool(data.get("use_regex", False)),
             spam_key=str(data.get("spam_key", "1")).upper(),
             interval_ms=max(10, int(data.get("interval_ms", 250))),
-            select_hotkey=str(data.get("select_hotkey", "")).upper(),
+            select_hotkey=str(data.get("select_hotkey", "")),
             is_active=False,
         )

@@ -1,2 +1,0 @@
-"""NeonFtool package."""
-

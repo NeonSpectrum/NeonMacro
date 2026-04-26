@@ -35,6 +35,7 @@ def build_main_window_widgets(
     window: ctk.CTk,
     *,
     open_options,
+    open_key_help,
     add_profile,
     update_profile,
     delete_profile,
@@ -52,7 +53,12 @@ def build_main_window_widgets(
     header.pack(fill="x", padx=10, pady=(10, 6))
     status_var = ctk.StringVar(value="Current Spam: None | Status: Inactive")
     ctk.CTkLabel(header, textvariable=status_var, anchor="w").pack(side="left", anchor="w")
-    ctk.CTkButton(header, text="Options", width=96, command=open_options).pack(side="right", anchor="e")
+    ctk.CTkButton(header, text="Options", width=96, command=open_options).pack(
+        side="right", anchor="e"
+    )
+    ctk.CTkButton(header, text="Help", width=80, command=open_key_help).pack(
+        side="right", anchor="e", padx=(0, 6)
+    )
 
     table_frame = ctk.CTkFrame(top, fg_color="transparent")
     table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
@@ -107,13 +113,15 @@ def build_main_window_widgets(
     interval_entry = ctk.CTkEntry(bottom, placeholder_text="Enter interval (ms)...")
     interval_entry.grid(row=7, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-    ctk.CTkLabel(bottom, text="Hotkey (e.g., CTRL+F1, ^F1)").grid(
+    ctk.CTkLabel(bottom, text="Hotkey (e.g., {CTRL}{F1}, {CTRL}1, {CTRL}`)").grid(
         row=8, column=0, sticky="w", padx=10, pady=(0, 2)
     )
     hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="Enter hotkey...")
     hotkey_entry.grid(row=9, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-    ctk.CTkLabel(bottom, text="Spam Key (e.g., F1)").grid(row=10, column=0, sticky="w", padx=10, pady=(0, 2))
+    ctk.CTkLabel(bottom, text="Spam Key (single key, e.g., F1, A, /)").grid(
+        row=10, column=0, sticky="w", padx=10, pady=(0, 2)
+    )
     spam_key_entry = ctk.CTkEntry(bottom, placeholder_text="Enter spam key...")
     spam_key_entry.grid(row=11, column=0, sticky="ew", padx=10, pady=(0, 8))
 

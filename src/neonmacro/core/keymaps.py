@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-import win32con
-
 from .keycodes import KEY_ALIASES, MODIFIER_BY_TOKEN, VK_BY_KEY
+
+SPAM_MOUSE_ALIASES: dict[str, str] = {
+    "lmb": "LMB",
+    "rmb": "RMB",
+    "mmb": "MMB",
+    "mb4": "MB4",
+    "mb5": "MB5",
+}
 
 SHIFTED_SYMBOL_TO_BASE: dict[str, str] = {
     "!": "1",
@@ -38,10 +44,10 @@ def normalize_spam_key_combo(raw: str) -> tuple[str, list[int]]:
         raise ValueError("Spam key is required.")
     if len(parts) > 1:
         raise ValueError("Spam key cannot use modifiers/combinations. Use a single key only (example: F1 or A).")
-    modifiers: list[int] = []
-    seen_modifiers: set[int] = set()
     main_key: str | None = None
     for part in parts:
+        if part.startswith("{") and part.endswith("}") and len(part) >= 3:
+            part = part[1:-1].strip()
         lowered = part.lower()
         compact = lowered.replace(" ", "")
         modifier_vk = MODIFIER_BY_TOKEN.get(lowered)
@@ -49,6 +55,12 @@ def normalize_spam_key_combo(raw: str) -> tuple[str, list[int]]:
             modifier_vk = MODIFIER_BY_TOKEN.get(compact)
         if modifier_vk is not None:
             raise ValueError("Spam key cannot use modifiers/combinations. Use a single key only (example: F1 or A).")
+        mouse_alias = SPAM_MOUSE_ALIASES.get(compact)
+        if mouse_alias is not None:
+            if main_key is not None:
+                raise ValueError("Use only one spam key (example: F1 or A).")
+            main_key = mouse_alias
+            continue
         normalized = KEY_ALIASES.get(lowered, part)
         normalized = normalized.upper() if normalized.isalnum() else normalized
         if normalized not in VK_BY_KEY:
@@ -58,18 +70,14 @@ def normalize_spam_key_combo(raw: str) -> tuple[str, list[int]]:
         main_key = normalized
     if main_key is None:
         raise ValueError("A spam key is required (example: F1 or A).")
-    canonical_mods: list[str] = []
-    for vk in modifiers:
-        if vk == win32con.VK_CONTROL:
-            canonical_mods.append("CTRL")
-        elif vk == win32con.VK_MENU:
-            canonical_mods.append("ALT")
-        elif vk == win32con.VK_SHIFT:
-            canonical_mods.append("SHIFT")
-        elif vk in {win32con.VK_LWIN, win32con.VK_RWIN}:
-            canonical_mods.append("WIN")
-    canonical = "+".join([*canonical_mods, main_key])
+    if main_key in {"LMB", "RMB", "MMB", "MB4", "MB5"}:
+        canonical = f"{{{main_key}}}"
+        return canonical, []
+    if main_key.startswith("F") and main_key[1:].isdigit():
+        canonical = f"{{{main_key}}}"
+    else:
+        canonical = main_key
     main_vk = VK_BY_KEY.get(main_key)
     if main_vk is None:
         raise ValueError(f"Unsupported spam key token '{main_key}'.")
-    return canonical, [*modifiers, main_vk]
+    return canonical, [main_vk]

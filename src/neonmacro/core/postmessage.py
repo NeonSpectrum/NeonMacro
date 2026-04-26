@@ -19,6 +19,48 @@ from .keymaps import normalize_spam_key_combo
 logger = logging.getLogger(__name__)
 KEYUP_DELAY_SECONDS = 0.010
 _USER32 = ctypes.WinDLL("user32", use_last_error=True)
+_XBUTTON1 = 0x0001
+_XBUTTON2 = 0x0002
+_WM_XBUTTONDOWN = getattr(win32con, "WM_XBUTTONDOWN", 0x020B)
+_WM_XBUTTONUP = getattr(win32con, "WM_XBUTTONUP", 0x020C)
+
+_MOUSE_MESSAGE_BY_TOKEN: dict[str, tuple[int, int, int, int, int]] = {
+    "LMB": (
+        win32con.WM_LBUTTONDOWN,
+        win32con.WM_LBUTTONUP,
+        win32con.MK_LBUTTON,
+        0,
+        0,
+    ),
+    "RMB": (
+        win32con.WM_RBUTTONDOWN,
+        win32con.WM_RBUTTONUP,
+        win32con.MK_RBUTTON,
+        0,
+        0,
+    ),
+    "MMB": (
+        win32con.WM_MBUTTONDOWN,
+        win32con.WM_MBUTTONUP,
+        win32con.MK_MBUTTON,
+        0,
+        0,
+    ),
+    "MB4": (
+        _WM_XBUTTONDOWN,
+        _WM_XBUTTONUP,
+        0,
+        _XBUTTON1,
+        _XBUTTON1 << 16,
+    ),
+    "MB5": (
+        _WM_XBUTTONDOWN,
+        _WM_XBUTTONUP,
+        0,
+        _XBUTTON2,
+        _XBUTTON2 << 16,
+    ),
+}
 
 
 @dataclass
@@ -106,6 +148,10 @@ def send_key(hwnd: int, key_name: str) -> bool:
         return ok, err
 
     canonical, vk_sequence = _normalized_spam_key_combo_cached(key_name)
+    mouse_token = canonical.strip("{}")
+    mouse_messages = _MOUSE_MESSAGE_BY_TOKEN.get(mouse_token)
+    if mouse_messages is not None:
+        return _send_mouse_click(hwnd, mouse_token, mouse_messages)
     modifier_vks = vk_sequence[:-1]
     main_vk = vk_sequence[-1]
     sent_to_child = False
@@ -165,6 +211,67 @@ def send_key(hwnd: int, key_name: str) -> bool:
             "send_key hwnd=%s key=%s class=%s valid=%s foreground=%s post_down=%s post_down_err=%s post_up=%s post_up_err=%s child=%s",
             hwnd,
             canonical,
+            win32gui.GetClassName(hwnd),
+            bool(win32gui.IsWindow(hwnd)),
+            win32gui.GetForegroundWindow() == hwnd,
+            down_ok,
+            down_err,
+            up_ok,
+            up_err,
+            sent_to_child,
+        )
+    return down_ok and up_ok
+
+
+def _client_center_lparam(hwnd: int) -> int:
+    left, top, right, bottom = win32gui.GetClientRect(hwnd)
+    center_x = max(0, (right - left) // 2)
+    center_y = max(0, (bottom - top) // 2)
+    return (center_y << 16) | (center_x & 0xFFFF)
+
+
+def _send_mouse_click(
+    hwnd: int,
+    token: str,
+    messages: tuple[int, int, int, int, int],
+) -> bool:
+    down_msg, up_msg, down_mask, up_mask, xbutton_data = messages
+    sent_to_child = False
+
+    def _post(target_hwnd: int, msg: int, wparam: int, lparam: int) -> tuple[bool, int]:
+        ctypes.set_last_error(0)
+        ok = bool(_USER32.PostMessageW(target_hwnd, msg, wparam, lparam))
+        err = ctypes.get_last_error()
+        return ok, err
+
+    def _click_target(target_hwnd: int) -> tuple[bool, int, bool, int]:
+        lparam = _client_center_lparam(target_hwnd)
+        down_wparam = down_mask | xbutton_data
+        up_wparam = up_mask | xbutton_data
+        down_ok, down_err = _post(target_hwnd, down_msg, down_wparam, lparam)
+        if down_ok and KEYUP_DELAY_SECONDS > 0:
+            time.sleep(KEYUP_DELAY_SECONDS)
+        up_ok, up_err = _post(target_hwnd, up_msg, up_wparam, lparam)
+        return down_ok, down_err, up_ok, up_err
+
+    down_ok, down_err, up_ok, up_err = _click_target(hwnd)
+
+    child = win32gui.GetWindow(hwnd, win32con.GW_CHILD)
+    if child:
+        child_down_ok, child_down_err, child_up_ok, child_up_err = _click_target(child)
+        sent_to_child = True
+        down_ok = down_ok or child_down_ok
+        up_ok = up_ok or child_up_ok
+        if down_err == 0:
+            down_err = child_down_err
+        if up_err == 0:
+            up_err = child_up_err
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "send_mouse hwnd=%s key=%s class=%s valid=%s foreground=%s post_down=%s post_down_err=%s post_up=%s post_up_err=%s child=%s",
+            hwnd,
+            token,
             win32gui.GetClassName(hwnd),
             bool(win32gui.IsWindow(hwnd)),
             win32gui.GetForegroundWindow() == hwnd,

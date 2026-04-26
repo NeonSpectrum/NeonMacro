@@ -13,6 +13,12 @@ VK_OEM_4 = getattr(win32con, "VK_OEM_4", 0xDB)
 VK_OEM_5 = getattr(win32con, "VK_OEM_5", 0xDC)
 VK_OEM_6 = getattr(win32con, "VK_OEM_6", 0xDD)
 VK_OEM_7 = getattr(win32con, "VK_OEM_7", 0xDE)
+VK_SNAPSHOT = getattr(win32con, "VK_SNAPSHOT", 0x2C)
+VK_PAUSE = getattr(win32con, "VK_PAUSE", 0x13)
+VK_CAPITAL = getattr(win32con, "VK_CAPITAL", 0x14)
+VK_NUMLOCK = getattr(win32con, "VK_NUMLOCK", 0x90)
+VK_SCROLL = getattr(win32con, "VK_SCROLL", 0x91)
+VK_CANCEL = getattr(win32con, "VK_CANCEL", 0x03)
 
 VK_BY_KEY: dict[str, int] = {
     **{str(n): ord(str(n)) for n in range(10)},
@@ -29,6 +35,13 @@ VK_BY_KEY: dict[str, int] = {
     "END": win32con.VK_END,
     "PAGEUP": win32con.VK_PRIOR,
     "PAGEDOWN": win32con.VK_NEXT,
+    "PRTSCN": VK_SNAPSHOT,
+    "PAUSE": VK_PAUSE,
+    "CAPSLOCK": VK_CAPITAL,
+    "NUMLOCK": VK_NUMLOCK,
+    "SCROLLLOCK": VK_SCROLL,
+    "BREAK": VK_PAUSE,
+    "CTRLBREAK": VK_CANCEL,
     "UP": win32con.VK_UP,
     "DOWN": win32con.VK_DOWN,
     "LEFT": win32con.VK_LEFT,
@@ -60,6 +73,24 @@ HOTKEY_VK_BY_TOKEN: dict[str, int] = {
     **{str(n): ord(str(n)) for n in range(10)},
     **{chr(code): code for code in range(ord("A"), ord("Z") + 1)},
     **{f"F{n}": getattr(win32con, f"VK_F{n}") for n in range(1, 25)},
+    "TAB": win32con.VK_TAB,
+    "ENTER": win32con.VK_RETURN,
+    "ESC": win32con.VK_ESCAPE,
+    "SPACE": win32con.VK_SPACE,
+    "BACKSPACE": win32con.VK_BACK,
+    "DELETE": win32con.VK_DELETE,
+    "INSERT": win32con.VK_INSERT,
+    "HOME": win32con.VK_HOME,
+    "END": win32con.VK_END,
+    "PAGEUP": win32con.VK_PRIOR,
+    "PAGEDOWN": win32con.VK_NEXT,
+    "PRTSCN": VK_SNAPSHOT,
+    "PAUSE": VK_PAUSE,
+    "CAPSLOCK": VK_CAPITAL,
+    "NUMLOCK": VK_NUMLOCK,
+    "SCROLLLOCK": VK_SCROLL,
+    "BREAK": VK_PAUSE,
+    "CTRLBREAK": VK_CANCEL,
     "`": VK_OEM_3,
     "-": VK_OEM_MINUS,
     "=": VK_OEM_PLUS,
@@ -91,12 +122,30 @@ MODIFIER_BY_TOKEN: dict[str, int] = {
 
 KEY_ALIASES: dict[str, str] = {
     "esc": "ESC",
+    "escape": "ESC",
     "return": "ENTER",
+    "tab": "TAB",
+    "backspace": "BACKSPACE",
+    "space": "SPACE",
     "spacebar": "SPACE",
+    "home": "HOME",
+    "end": "END",
     "del": "DELETE",
+    "delete": "DELETE",
     "ins": "INSERT",
+    "insert": "INSERT",
     "pgup": "PAGEUP",
+    "pageup": "PAGEUP",
     "pgdn": "PAGEDOWN",
+    "pagedown": "PAGEDOWN",
+    "prtscn": "PRTSCN",
+    "printscreen": "PRTSCN",
+    "pause": "PAUSE",
+    "capslock": "CAPSLOCK",
+    "numlock": "NUMLOCK",
+    "scrolllock": "SCROLLLOCK",
+    "break": "BREAK",
+    "ctrlbreak": "CTRLBREAK",
     "plus": "=",
     "minus": "-",
     "underscore": "-",

@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 class MainWindow(ctk.CTk):
     def __init__(self, config_path: Path) -> None:
         super().__init__()
-        self.title("NeonFtool")
+        self.title("NeonMacro")
+        self._window_icon_photo: tk.PhotoImage | None = None
         self._apply_window_icon()
         self._default_width = 600
         self._default_height = 700
@@ -119,8 +120,29 @@ class MainWindow(ctk.CTk):
 
     def _apply_window_icon(self) -> None:
         # EXE icon metadata and runtime window icon are separate on Windows.
-        # Set the runtime icon explicitly. In onefile builds, bundle an icon at
-        # neonftool/assets/icons/logo.ico and prefer that path first.
+        # Prefer PNG via iconphoto for cleaner runtime rendering in Tk, then
+        # fall back to ICO for environments where PNG loading is unavailable.
+        candidate_pngs = [
+            Path(__file__).resolve().parents[1] / "assets" / "icons" / "logo.png",
+            Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.png",
+        ]
+        for icon_path in candidate_pngs:
+            if not icon_path.exists():
+                continue
+            try:
+                self._window_icon_photo = tk.PhotoImage(file=str(icon_path))
+                self.iconphoto(True, self._window_icon_photo)
+                # CTk schedules a later default-icon assignment on Windows that
+                # is skipped only if this flag is set by iconbitmap(). Since we
+                # intentionally use iconphoto() here, mark it manually.
+                if hasattr(self, "_iconbitmap_method_called"):
+                    self._iconbitmap_method_called = True
+                return
+            except tk.TclError:
+                continue
+
+        # In onefile builds, bundle an icon at neonmacro/assets/icons/logo.ico
+        # and prefer that path first.
         candidate_icons = [
             Path(__file__).resolve().parents[1] / "assets" / "icons" / "logo.ico",
             Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.ico",
@@ -190,6 +212,7 @@ class MainWindow(ctk.CTk):
         widgets = build_main_window_widgets(
             self,
             open_options=self._open_options,
+            open_key_help=self._open_key_help,
             add_profile=self._add_profile,
             update_profile=self._update_selected,
             delete_profile=self._delete_selected,
@@ -248,6 +271,26 @@ class MainWindow(ctk.CTk):
         dialog.transient(self)
         self._center_dialog_on_parent(dialog)
         self._set_modal_popup(dialog)
+
+    def _open_key_help(self) -> None:
+        symbols = "` ~ ! @ # $ % ^ & * ( ) - _ = + [ ] { } \\ | ; : ' \" , < . > / ?"
+        text = (
+            "Spam keys\n"
+            "- Allowed: 0-9, A-Z, {F1}-{F24}, symbols, named keys, and mouse buttons.\n"
+            "- Symbols: "
+            f"{symbols}\n"
+            "- Named keys: {DEL} {INS} {PGUP} {PGDN} {HOME} {END} {RETURN} {ESCAPE} {BACKSPACE} {TAB} {PRTSCN} {PAUSE} {SPACE} {CAPSLOCK} {NUMLOCK} {SCROLLLOCK} {BREAK} {CTRLBREAK}\n"
+            "- Mouse: {LMB}, {RMB}, {MMB}, {MB4}, {MB5}\n"
+            "- Rule: spam key must be exactly one key with no modifier.\n"
+            "- Examples: F1, A, 7, /, `, {LMB}, {DEL}, {PRTSCN}\n\n"
+            "Hotkey input\n"
+            "- Format: append one key after optional modifiers.\n"
+            "- Modifiers: {CTRL} {RCTRL} {ALT} {RALT} {SHIFT} {RSHIFT} {LWIN} {RWIN} {APPS}\n"
+            "- Keys: letters/numbers, symbols, {F1}-{F24}, and the same named keys listed above.\n"
+            "- Mouse buttons: {LMB}, {RMB}, {MMB}, {MB4}, {MB5}\n"
+            "- Examples: {CTRL}{F1}, {CTRL}1, {CTRL}`, {RALT}{LMB}, {APPS}A, {CTRL}{DEL}"
+        )
+        messagebox.showinfo("Key Input Help", text)
 
     def _set_modal_popup(self, dialog: tk.Toplevel) -> None:
         # Make popups modal so interactions stay within the popup window.
@@ -389,7 +432,7 @@ class MainWindow(ctk.CTk):
     def _parse_profile_from_form(self) -> SpamProfile | None:
         name = self.name_entry.get().strip()
         title = self.window_title_entry.get().strip()
-        hotkey = self.hotkey_entry.get().strip().upper()
+        hotkey = self.hotkey_entry.get().strip()
         spam_key = self.spam_key_entry.get().strip()
         if not name:
             messagebox.showerror("Validation", "Profile name is required.")
@@ -423,7 +466,7 @@ class MainWindow(ctk.CTk):
             use_regex=self.use_regex_var.get(),
             spam_key=canonical_spam_key,
             interval_ms=interval,
-            select_hotkey=normalized_hotkey.upper(),
+            select_hotkey=normalized_hotkey,
             is_active=False,
         )
 
@@ -502,7 +545,7 @@ class MainWindow(ctk.CTk):
         self.interval_entry.delete(0, tk.END)
         self.interval_entry.insert(0, str(profile.interval_ms))
         self.hotkey_entry.delete(0, tk.END)
-        self.hotkey_entry.insert(0, profile.select_hotkey.upper())
+        self.hotkey_entry.insert(0, profile.select_hotkey)
 
     def _on_table_click(self, event) -> None:
         row_id = self.profile_table.identify_row(event.y)
@@ -570,7 +613,7 @@ class MainWindow(ctk.CTk):
                     profile.name,
                     profile.window_title,
                     profile.interval_ms,
-                    profile.select_hotkey.upper(),
+                    profile.select_hotkey,
                     profile.spam_key,
                 ),
             )
@@ -600,7 +643,7 @@ class MainWindow(ctk.CTk):
                 profile.name,
                 profile.window_title,
                 profile.interval_ms,
-                profile.select_hotkey.upper(),
+                profile.select_hotkey,
                 profile.spam_key,
             ),
         )

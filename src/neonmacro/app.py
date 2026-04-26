@@ -11,12 +11,12 @@ from .core.logging_setup import configure_logging
 from .ui.main_window import MainWindow
 
 _ERROR_ALREADY_EXISTS = 183
-_SINGLE_INSTANCE_MUTEX_NAME = "Local\\NeonSpectrum.NeonFtool.SingleInstance"
-_MAIN_WINDOW_TITLE = "NeonFtool"
+_SINGLE_INSTANCE_MUTEX_NAME = "Local\\NeonSpectrum.NeonMacro.SingleInstance"
+_MAIN_WINDOW_TITLE = "NeonMacro"
 
 
 def config_path() -> Path:
-    base = Path.home() / "AppData" / "Local" / "NeonFtool"
+    base = Path.home() / "AppData" / "Local" / "NeonMacro"
     return base / "config.json"
 
 
@@ -24,7 +24,7 @@ def _set_windows_app_user_model_id() -> None:
     # Helps Windows taskbar use this app identity/icon instead of fallback defaults.
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "NeonSpectrum.NeonFtool"
+            "NeonSpectrum.NeonMacro"
         )
     except (AttributeError, OSError):
         pass

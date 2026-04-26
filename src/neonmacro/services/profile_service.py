@@ -41,7 +41,7 @@ def sanitize_startup_hotkeys(
             removed_any = True
             continue
         seen[normalized] = profile.name
-        profile.select_hotkey = normalized.upper()
+        profile.select_hotkey = normalized
     return removed_any, issues
 
 

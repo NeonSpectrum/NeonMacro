@@ -3,24 +3,26 @@ requires = ["poetry-core>=1.9.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project]
-name = "neonftool"
+name = "neonmacro"
 version = "0.1.0"
-description = "CustomTkinter NeonFtool key spammer using PostMessage."
+description = "CustomTkinter NeonMacro key spammer using PostMessage."
 requires-python = ">=3.11"
 dependencies = [
     "customtkinter>=5.2.2",
     "keyboard>=0.13.5",
+    "mouse>=0.7.1",
     "psutil>=5.9.8",
     "pywin32>=306",
 ]
 
 [project.scripts]
-neonftool = "neonftool.app:main"
+neonmacro = "neonmacro.app:main"
 
 [tool.poetry]
-packages = [{ include = "neonftool", from = "src" }]
+packages = [{ include = "neonmacro", from = "src" }]
 
 [tool.poetry.group.dev.dependencies]
 nuitka = "*"
 ordered-set = "*"
 zstandard = "*"
+pillow = "^12.2.0"

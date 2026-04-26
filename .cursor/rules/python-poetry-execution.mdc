@@ -1,0 +1,21 @@
+---
+description: Use Poetry for Python command execution
+alwaysApply: true
+---
+
+# Poetry-First Python Execution
+
+- Use Poetry-managed commands whenever running Python in this project.
+- Prefer `poetry run` for scripts, modules, tools, and tests so dependency resolution matches the project environment.
+
+Examples:
+
+- Run script: `poetry run python path/to/script.py`
+- Run module: `poetry run python -m package.module`
+- Run pytest: `poetry run pytest`
+- Run lint/format tools: `poetry run <tool>`
+
+Avoid:
+
+- `python ...` directly (unless explicitly requested by the user)
+- `pip install ...` in the global environment (prefer `poetry add` or `poetry add --group dev`)
