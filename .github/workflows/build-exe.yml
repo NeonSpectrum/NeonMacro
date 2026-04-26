@@ -46,12 +46,11 @@ jobs:
           python -m pip install poetry
           python -m poetry --version
           python -m poetry install --with dev --no-interaction
-          python -m poetry run python -m pip install imageio
 
       - name: Build executable with Nuitka
         shell: pwsh
         run: |
-          $iconPath = "assets\icons\logo.png"
+          $iconPath = "assets\icons\logo.ico"
           if (!(Test-Path $iconPath)) {
             $ctkIconPath = python -m poetry run python -c "import customtkinter, pathlib; print(pathlib.Path(customtkinter.__file__).resolve().parent / 'assets' / 'icons' / 'CustomTkinter_icon_Windows.ico')"
             $ctkIconPath = $ctkIconPath.Trim()
@@ -79,16 +78,11 @@ jobs:
             "--output-dir=build\dist"
           )
 
-          # Prefer project PNG icon, fallback to CustomTkinter ICO.
+          # Prefer project icon, fallback to CustomTkinter icon.
           if ($iconPath -and (Test-Path $iconPath)) {
             $commonArgs += "--windows-icon-from-ico=$iconPath"
-            if ($iconPath.ToLower().EndsWith(".png")) {
-              # Bundle PNG icon when project logo.png is used.
-              $commonArgs += "--include-data-files=$iconPath=neonmacro/assets/icons/logo.png"
-            } else {
-              # Bundle ICO icon when CustomTkinter fallback is used.
-              $commonArgs += "--include-data-files=$iconPath=neonmacro/assets/icons/logo.ico"
-            }
+            # Bundle the runtime window icon so Tk can set titlebar/taskbar icon.
+            $commonArgs += "--include-data-files=$iconPath=neonmacro/assets/icons/logo.ico"
           }
 
           $buildArgs = @(
