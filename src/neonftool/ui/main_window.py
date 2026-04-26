@@ -98,8 +98,10 @@ class MainWindow(ctk.CTk):
 
     def _apply_window_icon(self) -> None:
         # EXE icon metadata and runtime window icon are separate on Windows.
-        # Set the runtime icon explicitly, with fallback to CustomTkinter's icon.
+        # Set the runtime icon explicitly. In onefile builds, bundle an icon at
+        # neonftool/assets/icons/logo.ico and prefer that path first.
         candidate_icons = [
+            Path(__file__).resolve().parents[1] / "assets" / "icons" / "logo.ico",
             Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.ico",
             Path(ctk.__file__).resolve().parent / "assets" / "icons" / "CustomTkinter_icon_Windows.ico",
         ]

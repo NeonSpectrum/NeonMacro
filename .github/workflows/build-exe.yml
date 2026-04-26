@@ -83,6 +83,8 @@ jobs:
           # Prefer project icon, fallback to CustomTkinter icon.
           if ($iconPath -and (Test-Path $iconPath)) {
             $commonArgs += "--windows-icon-from-ico=$iconPath"
+            # Bundle the runtime window icon so Tk can set titlebar/taskbar icon.
+            $commonArgs += "--include-data-files=$iconPath=neonftool/assets/icons/logo.ico"
           }
 
           $buildArgs = @(
