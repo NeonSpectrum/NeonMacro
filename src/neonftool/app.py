@@ -7,7 +7,7 @@ import customtkinter as ctk
 import win32con
 import win32gui
 
-from .logging_setup import configure_logging
+from .core.logging_setup import configure_logging
 from .ui.main_window import MainWindow
 
 _ERROR_ALREADY_EXISTS = 183

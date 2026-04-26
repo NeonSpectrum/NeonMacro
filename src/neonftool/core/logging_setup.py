@@ -45,7 +45,6 @@ def configure_logging(log_file: Path) -> None:
     root = logging.getLogger()
     root.setLevel(level)
 
-    # Avoid duplicate handlers when app gets restarted in-process.
     for handler in list(root.handlers):
         if isinstance(handler, RotatingFileHandler) and getattr(handler, "baseFilename", "") == str(log_file):
             return

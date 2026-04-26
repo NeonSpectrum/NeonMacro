@@ -6,8 +6,9 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from .models import SpamProfile
-from .postmessage import find_target_windows, send_key
+from ..models import SpamProfile
+from ..targeting.window_targeting import collect_targets_by_profile
+from .postmessage import send_key
 
 logger = logging.getLogger(__name__)
 
@@ -106,65 +107,71 @@ class SpamEngine:
                 continue
 
             now = time.monotonic()
+            cycle_started = time.perf_counter()
             sleep_seconds = 0.05
+            due_profiles: list[SpamProfile] = []
             for profile in profiles:
                 last_run = self._last_run_at.get(profile.name, 0.0)
                 interval_seconds = max(0.05, profile.interval_ms / 1000.0)
                 due = now - last_run >= interval_seconds
                 if due:
-                    try:
-                        allowed = self._allowed_executables_supplier()
-                        targets = find_target_windows(
-                            title_pattern=profile.window_title,
-                            use_regex=profile.use_regex,
-                            allowed_executables=allowed,
-                        )
-                    except Exception:
-                        # Avoid killing the worker loop on transient window/process errors.
-                        logger.exception("Target discovery failed for profile '%s'", profile.name)
-                        targets = []
-                    sent_count = 0
-                    for target in targets:
-                        try:
-                            if send_key(target.hwnd, profile.spam_key):
-                                sent_count += 1
-                        except ValueError as exc:
-                            self._emit_error(
-                                f"Invalid spam key for profile '{profile.name}': {exc}"
-                            )
-                            logger.exception(
-                                "Invalid send_key for profile '%s' hwnd=%s key=%s",
-                                profile.name,
-                                target.hwnd,
-                                profile.spam_key,
-                            )
-                            continue
-                        except Exception:
-                            # Keep processing remaining targets/profiles.
-                            logger.exception(
-                                "send_key failed for profile '%s' hwnd=%s key=%s",
-                                profile.name,
-                                target.hwnd,
-                                profile.spam_key,
-                            )
-                            continue
-                    last_emit = self._last_debug_emit_at.get(profile.name, 0.0)
-                    if now - last_emit >= 1.0:
-                        logger.debug(
-                            "Tick profile=%s key=%s interval_ms=%d allowed=%s targets=%d sent=%d",
-                            profile.name,
-                            profile.spam_key,
-                            profile.interval_ms,
-                            allowed,
-                            len(targets),
-                            sent_count,
-                        )
-                        self._last_debug_emit_at[profile.name] = now
-                    self._last_run_at[profile.name] = now
+                    due_profiles.append(profile)
                 else:
                     remaining = interval_seconds - (now - last_run)
                     if remaining < sleep_seconds:
                         sleep_seconds = max(0.01, remaining)
 
-            self._stop_event.wait(sleep_seconds)
+            targets_by_profile: dict[str, list] = {}
+            allowed: list[str] = []
+            if due_profiles:
+                try:
+                    allowed = self._allowed_executables_supplier()
+                    targets_by_profile = collect_targets_by_profile(due_profiles, allowed)
+                except Exception:
+                    logger.exception("Target discovery failed in worker cycle")
 
+            for profile in due_profiles:
+                targets = targets_by_profile.get(profile.name, [])
+                sent_count = 0
+                for target in targets:
+                    try:
+                        if send_key(target.hwnd, profile.spam_key):
+                            sent_count += 1
+                    except ValueError as exc:
+                        self._emit_error(
+                            f"Invalid spam key for profile '{profile.name}': {exc}"
+                        )
+                        logger.exception(
+                            "Invalid send_key for profile '%s' hwnd=%s key=%s",
+                            profile.name,
+                            target.hwnd,
+                            profile.spam_key,
+                        )
+                        continue
+                    except Exception:
+                        logger.exception(
+                            "send_key failed for profile '%s' hwnd=%s key=%s",
+                            profile.name,
+                            target.hwnd,
+                            profile.spam_key,
+                        )
+                        continue
+                last_emit = self._last_debug_emit_at.get(profile.name, 0.0)
+                if now - last_emit >= 1.0:
+                    logger.debug(
+                        "Tick profile=%s key=%s interval_ms=%d allowed=%s targets=%d sent=%d",
+                        profile.name,
+                        profile.spam_key,
+                        profile.interval_ms,
+                        allowed,
+                        len(targets),
+                        sent_count,
+                    )
+                    self._last_debug_emit_at[profile.name] = now
+                self._last_run_at[profile.name] = now
+
+            cycle_elapsed_ms = (time.perf_counter() - cycle_started) * 1000
+            if cycle_elapsed_ms >= 10:
+                logger.debug("worker_cycle_ms=%.2f due_profiles=%d", cycle_elapsed_ms, len(due_profiles))
+
+            self._stop_event.wait(sleep_seconds)

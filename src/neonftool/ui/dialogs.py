@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from tkinter import messagebox
-
 import customtkinter as ctk
 
 from ..models import AppOptions
@@ -30,6 +28,7 @@ class OptionsDialog(ctk.CTkToplevel):
         self.allowed_apps_var = ctk.StringVar(value=";".join(options.allowed_applications))
         self.overlay_x_var = ctk.StringVar(value=str(overlay_x))
         self.overlay_y_var = ctk.StringVar(value=str(overlay_y))
+        self._autosave_job: str | None = None
 
         body = ctk.CTkFrame(self)
         body.pack(fill="both", expand=True, padx=10, pady=10)
@@ -64,7 +63,7 @@ class OptionsDialog(ctk.CTkToplevel):
             text="Reset Overlay Position",
             width=170,
             command=self._reset_overlay_position,
-        ).pack(side="right")
+        ).pack(side="right", padx=(8, 0))
 
         spam_group = ctk.CTkFrame(body)
         spam_group.pack(fill="x", pady=(0, 10))
@@ -90,21 +89,13 @@ class OptionsDialog(ctk.CTkToplevel):
             fill="x", padx=10, pady=(2, 10)
         )
 
-        btns = ctk.CTkFrame(body, fg_color="transparent")
-        btns.pack(fill="x")
-        ctk.CTkButton(btns, text="Cancel", command=self.destroy).pack(side="right", padx=(6, 0))
-        ctk.CTkButton(btns, text="Save", command=self._save).pack(side="right")
+        self._register_autosave_callbacks()
+        self.bind("<Destroy>", self._on_destroy, add="+")
 
-    def _save(self) -> None:
-        try:
-            overlay_x = int(self.overlay_x_var.get().strip())
-            overlay_y = int(self.overlay_y_var.get().strip())
-        except ValueError:
-            messagebox.showerror("Options", "Overlay X and Y must be valid integers.")
-            return
+    def _build_options(self) -> AppOptions:
         apps = [item.strip() for item in self.allowed_apps_var.get().split(";") if item.strip()]
         stop_keys = [item.strip() for item in self.auto_stop_keys_var.get().split(";") if item.strip()]
-        options = AppOptions(
+        return AppOptions(
             enable_overlay=self.enable_overlay_var.get(),
             lock_overlay=self.lock_overlay_var.get(),
             force_overlay_visible=self.force_overlay_visible_var.get(),
@@ -113,8 +104,45 @@ class OptionsDialog(ctk.CTkToplevel):
             auto_stop_keys=stop_keys,
             allowed_applications=apps,
         )
-        self.on_save(options, (overlay_x, overlay_y))
-        self.destroy()
+
+    def _parse_overlay_position(self) -> tuple[int, int] | None:
+        try:
+            overlay_x = int(self.overlay_x_var.get().strip())
+            overlay_y = int(self.overlay_y_var.get().strip())
+        except ValueError:
+            return None
+        return (overlay_x, overlay_y)
+
+    def _register_autosave_callbacks(self) -> None:
+        watched_vars = (
+            self.enable_overlay_var,
+            self.lock_overlay_var,
+            self.force_overlay_visible_var,
+            self.allow_parallel_var,
+            self.auto_stop_on_key_press_var,
+            self.auto_stop_keys_var,
+            self.allowed_apps_var,
+            self.overlay_x_var,
+            self.overlay_y_var,
+        )
+        for var in watched_vars:
+            var.trace_add("write", self._schedule_autosave)
+
+    def _schedule_autosave(self, *_args) -> None:
+        if self._autosave_job is not None:
+            self.after_cancel(self._autosave_job)
+        self._autosave_job = self.after(250, self._autosave_now)
+
+    def _autosave_now(self) -> None:
+        self._autosave_job = None
+        options = self._build_options()
+        overlay_position = self._parse_overlay_position()
+        self.on_save(options, overlay_position)
+
+    def _on_destroy(self, _event=None) -> None:
+        if self._autosave_job is not None:
+            self.after_cancel(self._autosave_job)
+            self._autosave_job = None
 
     def _reset_overlay_position(self) -> None:
         screen_w = self.winfo_screenwidth()

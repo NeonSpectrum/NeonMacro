@@ -1,24 +1,35 @@
 from __future__ import annotations
 
 import re
+import logging
 import tkinter as tk
+import time
 from pathlib import Path
 from tkinter import messagebox
 from tkinter import ttk
 
 import customtkinter as ctk
-import psutil
-import win32con
-import win32gui
-import win32process
 
-from ..config import ConfigStore
-from ..hotkeys import HotkeyManager
-from ..keymaps import normalize_spam_key_combo
+from ..core.config import ConfigStore
+from ..core.hotkeys import HotkeyManager
+from ..core.keymaps import normalize_spam_key_combo
 from ..models import AppOptions, SpamProfile
-from ..overlay import OverlayWindow
-from ..spam_engine import EngineStatus, SpamEngine
+from ..core.overlay import OverlayWindow
+from ..services.profile_service import (
+    build_status_view,
+    enforce_parallel_profile_policy,
+    sanitize_startup_hotkeys,
+    validate_profile_uniqueness,
+)
+from ..core.spam_engine import EngineStatus, SpamEngine
 from .dialogs import OptionsDialog
+from .overlay_controller import (
+    active_profiles_matching_title,
+    get_foreground_context,
+    is_allowed_application_focused,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(ctk.CTk):
@@ -54,6 +65,7 @@ class MainWindow(ctk.CTk):
         self._overlay_sync_job: str | None = None
         self._theme_sync_job: str | None = None
         self._overlay_position_save_job: str | None = None
+        self._config_save_job: str | None = None
         self._pending_overlay_center: tuple[int, int] | None = None
         self._overlay_is_dragging = False
         self._options_dialog: OptionsDialog | None = None
@@ -78,6 +90,8 @@ class MainWindow(ctk.CTk):
 
         self._selected_profile_name: str | None = None
         self._overlay_has_active_spam = False
+        self._last_overlay_visible: bool | None = None
+        self._last_overlay_text: tuple[str, ...] = ()
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
         self._apply_table_theme()
@@ -170,36 +184,12 @@ class MainWindow(ctk.CTk):
         self._last_appearance_mode = appearance
 
     def _sanitize_profile_hotkeys_on_startup(self) -> None:
-        seen: dict[str, str] = {}
-        removed_any = False
-        for profile in self._config.profiles:
-            raw = profile.select_hotkey.strip()
-            if not raw:
-                continue
-            normalized = self._hotkeys.normalize_hotkey(raw)
-            if not normalized:
-                self._startup_hotkey_issues.append(
-                    f"{profile.name}: '{raw}' has invalid format."
-                )
-                profile.select_hotkey = ""
-                removed_any = True
-                continue
-            if normalized in seen:
-                self._startup_hotkey_issues.append(
-                    f"{profile.name}: '{raw}' duplicates {seen[normalized]}."
-                )
-                profile.select_hotkey = ""
-                removed_any = True
-                continue
-            if not self._hotkeys.can_bind_hotkey(normalized):
-                self._startup_hotkey_issues.append(
-                    f"{profile.name}: '{raw}' is already used by Windows/another app."
-                )
-                profile.select_hotkey = ""
-                removed_any = True
-                continue
-            seen[normalized] = profile.name
-            profile.select_hotkey = normalized.upper()
+        removed_any, issues = sanitize_startup_hotkeys(
+            profiles=self._config.profiles,
+            normalize_hotkey=self._hotkeys.normalize_hotkey,
+            can_bind_hotkey=self._hotkeys.can_bind_hotkey,
+        )
+        self._startup_hotkey_issues.extend(issues)
         if removed_any:
             self._store.save(self._config)
 
@@ -448,7 +438,7 @@ class MainWindow(ctk.CTk):
             return
         self._refresh_profile_list(selected_name=self._selected_profile_name)
         self._apply_active_profiles_state()
-        self._save_config()
+        self._save_config_debounced()
 
     def _apply_options(self) -> None:
         self._enforce_parallel_profile_policy()
@@ -461,16 +451,10 @@ class MainWindow(ctk.CTk):
         self._sync_overlay_visibility()
 
     def _enforce_parallel_profile_policy(self) -> None:
-        if self._config.options.allow_parallel:
-            return
-        seen_active = False
-        for profile in self._config.profiles:
-            if not profile.is_active:
-                continue
-            if not seen_active:
-                seen_active = True
-                continue
-            profile.is_active = False
+        enforce_parallel_profile_policy(
+            self._config.profiles,
+            allow_parallel=self._config.options.allow_parallel,
+        )
 
     def _schedule_overlay_sync(self) -> None:
         self._sync_overlay_visibility()
@@ -482,113 +466,55 @@ class MainWindow(ctk.CTk):
             self._apply_table_theme()
         self._theme_sync_job = self.after(500, self._schedule_theme_sync)
 
-    def _is_app_focused(self) -> bool:
-        try:
-            foreground = win32gui.GetForegroundWindow()
-        except win32gui.error:
-            return False
-        if foreground == 0:
-            return False
-        roots = (self.winfo_id(), self._overlay.winfo_id())
-        try:
-            foreground_root = win32gui.GetAncestor(foreground, win32con.GA_ROOT)
-        except win32gui.error:
-            foreground_root = foreground
-        if foreground_root in roots:
-            return True
-        for root in roots:
-            if foreground == root:
-                return True
-            try:
-                if win32gui.IsChild(root, foreground):
-                    return True
-            except win32gui.error:
-                continue
-        return False
-
     def _sync_overlay_visibility(self) -> None:
+        sync_started = time.perf_counter()
         if self._config.options.force_overlay_visible:
-            self._overlay.set_text(["FORCED OVERLAY"], True)
-            self._overlay.deiconify()
-            self._overlay.attributes("-topmost", True)
-            self._overlay.keep_topmost_without_focus()
+            self._set_overlay_state(visible=True, names=["FORCED OVERLAY"])
             return
         if self._overlay_is_dragging:
             # Keep overlay visible while dragging to avoid flicker caused by
             # transient foreground-title changes during mouse capture.
-            self._overlay.deiconify()
-            self._overlay.attributes("-topmost", True)
-            self._overlay.keep_topmost_without_focus()
+            self._set_overlay_state(visible=True, names=list(self._last_overlay_text))
             return
-        matching_profiles = self._active_profiles_matching_foreground_title()
-        allowed_app_focused = self._is_allowed_application_focused()
+        foreground = get_foreground_context()
+        matching_profiles = active_profiles_matching_title(
+            self._config.profiles,
+            foreground_title=foreground.title if foreground is not None else "",
+        )
+        allowed_app_focused = foreground is not None and is_allowed_application_focused(
+            self._config.options, foreground.exe_name
+        )
         should_show = (
             self._config.options.enable_overlay
             and self.state() != "iconic"
             and bool(matching_profiles)
             and allowed_app_focused
         )
-        if should_show:
-            self._overlay.set_text(matching_profiles, True)
+        self._set_overlay_state(visible=should_show, names=matching_profiles if should_show else [])
+        elapsed_ms = (time.perf_counter() - sync_started) * 1000
+        if elapsed_ms >= 5:
+            logger.debug("overlay_sync_ms=%.2f visible=%s matches=%d", elapsed_ms, should_show, len(matching_profiles))
+
+    def _set_overlay_state(self, visible: bool, names: list[str]) -> None:
+        name_tuple = tuple(names)
+        if name_tuple != self._last_overlay_text:
+            self._overlay.set_text(list(name_tuple), bool(name_tuple))
+            self._last_overlay_text = name_tuple
+        if visible == self._last_overlay_visible:
+            if visible:
+                self._overlay.keep_topmost_without_focus()
+            return
+        self._last_overlay_visible = visible
+        if visible:
             self._overlay.deiconify()
             self._overlay.attributes("-topmost", True)
             self._overlay.keep_topmost_without_focus()
-        else:
-            self._overlay.set_text([], False)
-            self._overlay.withdraw()
+            return
+        self._overlay.withdraw()
 
     def _on_overlay_drag_state_changed(self, is_dragging: bool) -> None:
         self._overlay_is_dragging = is_dragging
         self._sync_overlay_visibility()
-
-    def _active_profiles_matching_foreground_title(self) -> list[str]:
-        active_profiles = [profile for profile in self._config.profiles if profile.is_active]
-        if not active_profiles:
-            return []
-        try:
-            foreground = win32gui.GetForegroundWindow()
-            if foreground == 0:
-                return []
-            title = win32gui.GetWindowText(foreground)
-        except win32gui.error:
-            return []
-        if not title.strip():
-            return []
-
-        matches: list[str] = []
-        lowered_title = title.lower()
-        for profile in active_profiles:
-            pattern = profile.window_title.strip()
-            if not pattern:
-                continue
-            if profile.use_regex:
-                try:
-                    if re.search(pattern, title, flags=re.IGNORECASE):
-                        matches.append(profile.name)
-                except re.error:
-                    continue
-            elif pattern.lower() in lowered_title:
-                matches.append(profile.name)
-        return matches
-
-    def _is_allowed_application_focused(self) -> bool:
-        allowed = {
-            app.strip().lower()
-            for app in self._config.options.allowed_applications
-            if app.strip()
-        }
-        # No app filter configured: don't block overlay visibility.
-        if not allowed:
-            return True
-        try:
-            foreground = win32gui.GetForegroundWindow()
-            if foreground == 0:
-                return False
-            _, process_id = win32process.GetWindowThreadProcessId(foreground)
-            exe_name = psutil.Process(process_id).name().lower()
-        except (win32gui.error, win32process.error, psutil.Error):
-            return False
-        return exe_name in allowed
 
     def _parse_profile_from_form(self) -> SpamProfile | None:
         name = self.name_var.get().strip()
@@ -635,20 +561,19 @@ class MainWindow(ctk.CTk):
         profile = self._parse_profile_from_form()
         if profile is None:
             return
-        if any(item.name == profile.name for item in self._config.profiles):
-            messagebox.showerror("Validation", "Spam name must be unique.")
-            return
-        if any(
-            self._hotkeys.normalize_hotkey(item.select_hotkey) == self._hotkeys.normalize_hotkey(profile.select_hotkey)
-            for item in self._config.profiles
-        ):
-            messagebox.showerror("Validation", f"Hotkey '{profile.select_hotkey}' is already used by another profile.")
+        validation_error = validate_profile_uniqueness(
+            profiles=self._config.profiles,
+            candidate=profile,
+            normalize_hotkey=self._hotkeys.normalize_hotkey,
+        )
+        if validation_error:
+            messagebox.showerror("Validation", validation_error)
             return
         self._config.profiles.append(profile)
         self._refresh_profile_list()
         self._apply_options()
         self._apply_active_profiles_state()
-        self._save_config()
+        self._save_config_debounced()
 
     def _update_selected(self) -> None:
         index = self._selected_index()
@@ -660,16 +585,14 @@ class MainWindow(ctk.CTk):
             return
         existing_name = self._config.profiles[index].name
         profile.is_active = self._config.profiles[index].is_active
-        if profile.name != existing_name and any(item.name == profile.name for item in self._config.profiles):
-            messagebox.showerror("Validation", "Spam name must be unique.")
-            return
-        if any(
-            i != index
-            and self._hotkeys.normalize_hotkey(item.select_hotkey)
-            == self._hotkeys.normalize_hotkey(profile.select_hotkey)
-            for i, item in enumerate(self._config.profiles)
-        ):
-            messagebox.showerror("Validation", f"Hotkey '{profile.select_hotkey}' is already used by another profile.")
+        validation_error = validate_profile_uniqueness(
+            profiles=self._config.profiles,
+            candidate=profile,
+            normalize_hotkey=self._hotkeys.normalize_hotkey,
+            ignore_index=index,
+        )
+        if validation_error:
+            messagebox.showerror("Validation", validation_error)
             return
         self._config.profiles[index] = profile
         if self._selected_profile_name == existing_name:
@@ -677,7 +600,7 @@ class MainWindow(ctk.CTk):
         self._refresh_profile_list(selected_name=profile.name)
         self._apply_options()
         self._apply_active_profiles_state()
-        self._save_config()
+        self._save_config_debounced()
 
     def _delete_selected(self) -> None:
         index = self._selected_index()
@@ -691,7 +614,7 @@ class MainWindow(ctk.CTk):
         self._refresh_profile_list()
         self._apply_options()
         self._apply_active_profiles_state()
-        self._save_config()
+        self._save_config_debounced()
 
     def _on_table_selected(self, _event=None) -> None:
         index = self._selected_index()
@@ -721,7 +644,7 @@ class MainWindow(ctk.CTk):
         self.profile_table.focus("")
         self._selected_profile_name = None
         self._clear_form()
-        self._save_config()
+        self._save_config_debounced()
 
     def _on_profile_selected_by_hotkey(self, profile_name: str) -> None:
         self.after(0, lambda: self._toggle_profile_by_hotkey(profile_name))
@@ -754,16 +677,12 @@ class MainWindow(ctk.CTk):
         messagebox.showerror("Spam key validation", message)
 
     def _update_status_text(self, status: EngineStatus) -> None:
-        active_names = status.active_profile_names or []
-        if not active_names:
-            shown = "None"
-        elif len(active_names) <= 3:
-            shown = ", ".join(active_names)
-        else:
-            shown = ", ".join(active_names[:3]) + f" (+{len(active_names) - 3})"
-        label = "Active" if status.enabled and bool(active_names) else "Inactive"
-        self._overlay_has_active_spam = status.enabled and bool(active_names)
-        self.status_var.set(f"Current Spam: {shown} | Status: {label}")
+        status_view = build_status_view(
+            enabled=status.enabled,
+            active_profile_names=status.active_profile_names or [],
+        )
+        self._overlay_has_active_spam = status_view.overlay_has_active_spam
+        self.status_var.set(status_view.text)
         self._sync_overlay_visibility()
 
     def _refresh_profile_list(self, selected_name: str | None = None) -> None:
@@ -792,6 +711,24 @@ class MainWindow(ctk.CTk):
                 self._on_table_selected()
                 break
 
+    def _update_table_row(self, index: int) -> None:
+        children = self.profile_table.get_children()
+        if index < 0 or index >= len(children):
+            return
+        profile = self._config.profiles[index]
+        item_id = children[index]
+        self.profile_table.item(
+            item_id,
+            image=self._checkbox_images[profile.is_active],
+            values=(
+                profile.name,
+                profile.window_title,
+                profile.interval_ms,
+                profile.select_hotkey.upper(),
+                profile.spam_key,
+            ),
+        )
+
     def _selected_index(self) -> int | None:
         selected = self.profile_table.selection()
         if not selected:
@@ -812,11 +749,19 @@ class MainWindow(ctk.CTk):
         self.profile_table.see(item_id)
 
     def _save_config(self) -> None:
+        if self._config_save_job is not None:
+            self.after_cancel(self._config_save_job)
+            self._config_save_job = None
         x, y = self._overlay.get_position()
         self._config.overlay.x = x
         self._config.overlay.y = y
         self._config.selected_profile_name = self._selected_profile_name
         self._store.save(self._config)
+
+    def _save_config_debounced(self, delay_ms: int = 150) -> None:
+        if self._config_save_job is not None:
+            self.after_cancel(self._config_save_job)
+        self._config_save_job = self.after(delay_ms, self._save_config)
 
     def _on_overlay_position_changed(self, center_x: int, center_y: int) -> None:
         self._pending_overlay_center = (center_x, center_y)
@@ -842,27 +787,28 @@ class MainWindow(ctk.CTk):
         if not self._config.options.allow_parallel and next_active:
             for i, item in enumerate(self._config.profiles):
                 item.is_active = i == index
+                self._update_table_row(i)
         else:
             profile.is_active = next_active
-        self._refresh_profile_list(selected_name=self._selected_profile_name)
+            self._update_table_row(index)
         self._apply_active_profiles_state()
         if persist:
-            self._save_config()
+            self._save_config_debounced()
 
     def _on_auto_stop_hotkey(self) -> None:
         self.after(0, self._stop_all_active_profiles)
 
     def _stop_all_active_profiles(self) -> None:
         changed = False
-        for profile in self._config.profiles:
+        for index, profile in enumerate(self._config.profiles):
             if profile.is_active:
                 profile.is_active = False
+                self._update_table_row(index)
                 changed = True
         if not changed:
             return
-        self._refresh_profile_list(selected_name=self._selected_profile_name)
         self._apply_active_profiles_state()
-        self._save_config()
+        self._save_config_debounced()
 
     def _clear_form(self) -> None:
         self.name_var.set("")
@@ -882,6 +828,9 @@ class MainWindow(ctk.CTk):
         if self._overlay_position_save_job is not None:
             self.after_cancel(self._overlay_position_save_job)
             self._overlay_position_save_job = None
+        if self._config_save_job is not None:
+            self.after_cancel(self._config_save_job)
+            self._config_save_job = None
         if self._pending_overlay_center is not None:
             center_x, center_y = self._pending_overlay_center
             self._config.overlay.x = center_x

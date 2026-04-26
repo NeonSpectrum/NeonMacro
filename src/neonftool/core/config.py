@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .models import AppConfig
+from ..models import AppConfig
 
 
 class ConfigStore:
@@ -20,8 +20,7 @@ class ConfigStore:
 
     def save(self, config: AppConfig) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(config.to_dict(), indent=2, ensure_ascii=True),
-            encoding="utf-8",
-        )
-
+        payload = json.dumps(config.to_dict(), indent=2, ensure_ascii=True)
+        temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        temp_path.write_text(payload, encoding="utf-8")
+        temp_path.replace(self.path)

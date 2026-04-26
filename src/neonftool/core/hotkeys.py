@@ -4,9 +4,9 @@ import ctypes
 from collections.abc import Callable
 
 import keyboard
-import win32con
 
-from .models import SpamProfile
+from ..models import SpamProfile
+from .keycodes import HOTKEY_VK_BY_TOKEN
 
 SYMBOL_ALIASES: dict[str, str] = {
     "backtick": "`",
@@ -56,35 +56,6 @@ _MOD_ALT = 0x0001
 _MOD_CONTROL = 0x0002
 _MOD_SHIFT = 0x0004
 _MOD_WIN = 0x0008
-
-_VK_OEM_1 = getattr(win32con, "VK_OEM_1", 0xBA)
-_VK_OEM_PLUS = getattr(win32con, "VK_OEM_PLUS", 0xBB)
-_VK_OEM_COMMA = getattr(win32con, "VK_OEM_COMMA", 0xBC)
-_VK_OEM_MINUS = getattr(win32con, "VK_OEM_MINUS", 0xBD)
-_VK_OEM_PERIOD = getattr(win32con, "VK_OEM_PERIOD", 0xBE)
-_VK_OEM_2 = getattr(win32con, "VK_OEM_2", 0xBF)
-_VK_OEM_3 = getattr(win32con, "VK_OEM_3", 0xC0)
-_VK_OEM_4 = getattr(win32con, "VK_OEM_4", 0xDB)
-_VK_OEM_5 = getattr(win32con, "VK_OEM_5", 0xDC)
-_VK_OEM_6 = getattr(win32con, "VK_OEM_6", 0xDD)
-_VK_OEM_7 = getattr(win32con, "VK_OEM_7", 0xDE)
-
-_VK_BY_TOKEN: dict[str, int] = {
-    **{str(n): ord(str(n)) for n in range(10)},
-    **{chr(code): code for code in range(ord("A"), ord("Z") + 1)},
-    **{f"F{n}": getattr(win32con, f"VK_F{n}") for n in range(1, 25)},
-    "`": _VK_OEM_3,
-    "-": _VK_OEM_MINUS,
-    "=": _VK_OEM_PLUS,
-    "[": _VK_OEM_4,
-    "]": _VK_OEM_6,
-    "\\": _VK_OEM_5,
-    ";": _VK_OEM_1,
-    "'": _VK_OEM_7,
-    ",": _VK_OEM_COMMA,
-    ".": _VK_OEM_PERIOD,
-    "/": _VK_OEM_2,
-}
 
 
 class HotkeyManager:
@@ -163,7 +134,6 @@ class HotkeyManager:
             return ""
         expanded: list[str] = []
         current = raw
-        # Support shorthand notation like !f1, ^a, +tab, #r.
         while current and current[0] in SHORTHAND_MODIFIERS:
             expanded.append(SHORTHAND_MODIFIERS[current[0]])
             current = current[1:].strip()
@@ -217,7 +187,7 @@ class HotkeyManager:
                 key_token = part
         if key_token is None:
             return None
-        vk = _VK_BY_TOKEN.get(key_token)
+        vk = HOTKEY_VK_BY_TOKEN.get(key_token)
         if vk is None:
             return None
         return modifiers, vk
@@ -231,7 +201,6 @@ class HotkeyManager:
             try:
                 keyboard.remove_hotkey(hotkey_id)
             except KeyError:
-                # Keyboard can already purge callbacks in some edge cases.
                 continue
         self._registered_ids.clear()
 
@@ -240,7 +209,5 @@ class HotkeyManager:
             try:
                 keyboard.remove_hotkey(hotkey_id)
             except KeyError:
-                # Keep cleanup idempotent when a hotkey was already removed.
                 continue
         self._registered_auto_stop_ids.clear()
-
