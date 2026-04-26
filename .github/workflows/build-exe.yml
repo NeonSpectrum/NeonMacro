@@ -10,8 +10,18 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_name: gui
+            output_filename: NeonFtool.exe
+            artifact_name: neonftool-exe
+            console_mode: disable
+          - build_name: debug
+            output_filename: NeonFtool-debug.exe
+            artifact_name: neonftool-debug-exe
+            console_mode: force
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,7 +50,7 @@ jobs:
           pip install -e .
           pip install nuitka ordered-set zstandard
 
-      - name: Build executable with Nuitka
+      - name: Build executable with Nuitka (${{ matrix.build_name }})
         shell: pwsh
         run: |
           $iconPath = "assets\icons\logo.ico"
@@ -75,39 +85,42 @@ jobs:
             $commonArgs += "--windows-icon-from-ico=$iconPath"
           }
 
-          $guiArgs = @(
-            "--windows-console-mode=disable",
-            "--output-filename=NeonFtool.exe"
+          $buildArgs = @(
+            "--windows-console-mode=${{ matrix.console_mode }}",
+            "--output-filename=${{ matrix.output_filename }}"
           ) + $commonArgs + @($launcherPath)
-          python -m nuitka @guiArgs
+          python -m nuitka @buildArgs
 
-          $debugArgs = @(
-            "--windows-console-mode=force",
-            "--output-filename=NeonFtool-debug.exe"
-          ) + $commonArgs + @($launcherPath)
-          python -m nuitka @debugArgs
-
-      - name: Verify built executable exists
+      - name: Verify built executable exists (${{ matrix.build_name }})
         shell: pwsh
         run: |
-          if (!(Test-Path "build\dist\NeonFtool.exe")) {
-            throw "Expected build\dist\NeonFtool.exe to exist, but it was not found."
-          }
-          if (!(Test-Path "build\dist\NeonFtool-debug.exe")) {
-            throw "Expected build\dist\NeonFtool-debug.exe to exist, but it was not found."
+          if (!(Test-Path "build\dist\${{ matrix.output_filename }}")) {
+            throw "Expected build\dist\${{ matrix.output_filename }} to exist, but it was not found."
           }
 
-      - name: Upload GUI artifact
+      - name: Upload artifact (${{ matrix.build_name }})
         uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: build/dist/${{ matrix.output_filename }}
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download GUI artifact
+        uses: actions/download-artifact@v4
         with:
           name: neonftool-exe
-          path: build/dist/NeonFtool.exe
+          path: build/dist
 
-      - name: Upload debug artifact
-        uses: actions/upload-artifact@v4
+      - name: Download debug artifact
+        uses: actions/download-artifact@v4
         with:
           name: neonftool-debug-exe
-          path: build/dist/NeonFtool-debug.exe
+          path: build/dist
 
       - name: Publish pre-release from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
