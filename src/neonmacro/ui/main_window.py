@@ -52,7 +52,9 @@ class MainWindow(ctk.CTk):
         self._apply_initial_window_geometry()
 
         self._engine = SpamEngine(
-            allowed_executables_supplier=lambda: self._config.options.allowed_applications,
+            # Spam delivery can be constrained to the foreground app when
+            # background mode is disabled in Spam Settings.
+            allowed_executables_supplier=self._spam_allowed_executables,
             on_tick=self._on_engine_tick,
             on_error=self._on_engine_error,
         )
@@ -581,6 +583,17 @@ class MainWindow(ctk.CTk):
             if profile.name == profile_name:
                 self._toggle_profile_active(index, persist=False)
                 return
+
+    def _spam_allowed_executables(self) -> list[str]:
+        if self._config.options.allow_background:
+            return []
+        foreground = get_foreground_context()
+        if foreground is None:
+            return ["__neonmacro_no_foreground__"]
+        exe_name = foreground.exe_name.strip().lower()
+        if not exe_name:
+            return ["__neonmacro_no_foreground__"]
+        return [exe_name]
 
     def _apply_active_profiles_state(self) -> None:
         active_profiles = [profile for profile in self._config.profiles if profile.is_active]

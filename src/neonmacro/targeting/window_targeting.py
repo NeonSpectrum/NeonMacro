@@ -48,17 +48,15 @@ def collect_targets_by_profile(
     result: dict[str, list[TargetWindow]] = {}
     for matcher in compile_profile_matchers(profiles):
         filtered: list[TargetWindow] = []
-        fallback: list[TargetWindow] = []
         for window in windows:
             if matcher.regex is not None:
                 if not matcher.regex.search(window.title):
                     continue
             elif matcher.lowered_pattern not in window.title.lower():
                 continue
-            fallback.append(window)
             if allowed and window.exe_name.lower() not in allowed:
                 continue
             filtered.append(window)
-        result[matcher.profile.name] = filtered or fallback if allowed else filtered
+        result[matcher.profile.name] = filtered
     return result
 

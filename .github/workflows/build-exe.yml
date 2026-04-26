@@ -127,7 +127,7 @@ jobs:
         with:
           tag_name: main-ci
           target_commitish: ${{ github.sha }}
-          name: NeonMacro Pre-release (main)
+          name: Pre-release (main)
           prerelease: true
           make_latest: false
           generate_release_notes: false

@@ -24,6 +24,7 @@ class OptionsDialog(ctk.CTkToplevel):
         self.lock_overlay_var = ctk.BooleanVar(value=options.lock_overlay)
         self.force_overlay_visible_var = ctk.BooleanVar(value=options.force_overlay_visible)
         self.allow_parallel_var = ctk.BooleanVar(value=options.allow_parallel)
+        self.allow_background_var = ctk.BooleanVar(value=options.allow_background)
         self.auto_stop_on_key_press_var = ctk.BooleanVar(value=options.auto_stop_on_key_press)
         self.restrict_profile_hotkeys_var = ctk.BooleanVar(
             value=options.restrict_profile_hotkeys_to_allowed_apps
@@ -88,6 +89,11 @@ class OptionsDialog(ctk.CTkToplevel):
         )
         ctk.CTkCheckBox(
             spam_group,
+            text="Allow background (spam key works when target app is not focused)",
+            variable=self.allow_background_var,
+        ).pack(anchor="w", padx=10, pady=2)
+        ctk.CTkCheckBox(
+            spam_group,
             text="Enable auto stop when key press",
             variable=self.auto_stop_on_key_press_var,
         ).pack(anchor="w", padx=10, pady=2)
@@ -122,6 +128,7 @@ class OptionsDialog(ctk.CTkToplevel):
             lock_overlay=self.lock_overlay_var.get(),
             force_overlay_visible=self.force_overlay_visible_var.get(),
             allow_parallel=self.allow_parallel_var.get(),
+            allow_background=self.allow_background_var.get(),
             auto_stop_on_key_press=self.auto_stop_on_key_press_var.get(),
             restrict_profile_hotkeys_to_allowed_apps=self.restrict_profile_hotkeys_var.get(),
             auto_stop_keys=stop_keys,
@@ -142,6 +149,7 @@ class OptionsDialog(ctk.CTkToplevel):
             self.lock_overlay_var,
             self.force_overlay_visible_var,
             self.allow_parallel_var,
+            self.allow_background_var,
             self.auto_stop_on_key_press_var,
             self.restrict_profile_hotkeys_var,
             self.auto_stop_keys_var,

@@ -12,6 +12,7 @@ class AppOptions:
     lock_overlay: bool = False
     force_overlay_visible: bool = False
     allow_parallel: bool = True
+    allow_background: bool = True
     auto_stop_on_key_press: bool = False
     restrict_profile_hotkeys_to_allowed_apps: bool = False
     auto_stop_keys: list[str] = field(default_factory=lambda: list(DEFAULT_AUTO_STOP_KEYS))
@@ -31,6 +32,7 @@ class AppOptions:
             lock_overlay=bool(data.get("lock_overlay", False)),
             force_overlay_visible=bool(data.get("force_overlay_visible", False)),
             allow_parallel=bool(data.get("allow_parallel", True)),
+            allow_background=bool(data.get("allow_background", True)),
             auto_stop_on_key_press=bool(data.get("auto_stop_on_key_press", False)),
             restrict_profile_hotkeys_to_allowed_apps=bool(
                 data.get("restrict_profile_hotkeys_to_allowed_apps", False)
