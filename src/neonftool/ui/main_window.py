@@ -6,7 +6,6 @@ import tkinter as tk
 import time
 from pathlib import Path
 from tkinter import messagebox
-from tkinter import ttk
 
 import customtkinter as ctk
 
@@ -23,11 +22,13 @@ from ..services.profile_service import (
 )
 from ..core.spam_engine import EngineStatus, SpamEngine
 from .dialogs import OptionsDialog
+from .main_window_components import build_main_window_widgets
 from .overlay_controller import (
     active_profiles_matching_title,
     get_foreground_context,
     is_allowed_application_focused,
 )
+from .table_ui_manager import TableUiManager
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +69,12 @@ class MainWindow(ctk.CTk):
         )
         self._overlay_sync_job: str | None = None
         self._theme_sync_job: str | None = None
-        self._overlay_position_save_job: str | None = None
         self._config_save_job: str | None = None
         self._pending_overlay_center: tuple[int, int] | None = None
         self._overlay_is_dragging = False
         self._options_dialog: OptionsDialog | None = None
         self._last_engine_error_message: str = ""
         self._last_engine_error_at: float = 0.0
-        self._last_appearance_mode: str = ""
         self._column_ratios: dict[str, float] = {
             "name": 0.25,
             "window_title": 0.30,
@@ -98,8 +97,8 @@ class MainWindow(ctk.CTk):
         self._last_overlay_text: tuple[str, ...] = ()
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
-        self._apply_table_theme()
         self._build_layout()
+        self._apply_table_theme()
         self._bind_events()
         self._refresh_profile_list()
         self._apply_active_profiles_state()
@@ -172,48 +171,7 @@ class MainWindow(ctk.CTk):
         return max(self._minimum_window_height(), value)
 
     def _apply_table_theme(self) -> None:
-        appearance = ctk.get_appearance_mode().lower()
-        is_dark = appearance == "dark"
-
-        if is_dark:
-            bg = "#1f1f1f"
-            fg = "#f2f2f2"
-            heading_bg = "#2a2a2a"
-            selected_bg = "#1f6aa5"
-        else:
-            bg = "#ffffff"
-            fg = "#111111"
-            heading_bg = "#ececec"
-            selected_bg = "#2f80ed"
-
-        style = ttk.Style(self)
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
-        style.configure(
-            "Neon.Treeview",
-            background=bg,
-            fieldbackground=bg,
-            foreground=fg,
-            rowheight=30,
-            borderwidth=0,
-        )
-        style.configure(
-            "Neon.Treeview.Heading",
-            background=heading_bg,
-            foreground=fg,
-            relief="flat",
-        )
-        style.map(
-            "Neon.Treeview",
-            background=[("selected", selected_bg)],
-            foreground=[("selected", "#ffffff")],
-        )
-        style.map(
-            "Neon.Treeview.Heading",
-            background=[("active", heading_bg)],
-            foreground=[("active", fg)],
-        )
-        self._last_appearance_mode = appearance
+        self._table_ui.apply_theme()
 
     def _sanitize_profile_hotkeys_on_startup(self) -> None:
         removed_any, issues = sanitize_startup_hotkeys(
@@ -226,105 +184,41 @@ class MainWindow(ctk.CTk):
             self._store.save(self._config)
 
     def _build_layout(self) -> None:
-        self.grid_columnconfigure(0, weight=1)
         # Keep the form section stable; let the table section absorb resize first.
         self.grid_rowconfigure(0, weight=1, minsize=self._table_panel_min_height)
         self.grid_rowconfigure(1, weight=0, minsize=self._details_panel_min_height)
+        widgets = build_main_window_widgets(
+            self,
+            open_options=self._open_options,
+            add_profile=self._add_profile,
+            update_profile=self._update_selected,
+            delete_profile=self._delete_selected,
+            checkbox_col_width=self._checkbox_col_width,
+        )
+        self.status_var = widgets.status_var
+        self.profile_table = widgets.table.tree
+        self._table_scroll_y = widgets.table.scrollbar
+        self.use_regex_var = widgets.form.use_regex_var
+        self.name_entry = widgets.form.name_entry
+        self.window_title_entry = widgets.form.window_title_entry
+        self.interval_entry = widgets.form.interval_entry
+        self.hotkey_entry = widgets.form.hotkey_entry
+        self.spam_key_entry = widgets.form.spam_key_entry
 
-        top = ctk.CTkFrame(self)
-        top.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="nsew")
-        bottom = ctk.CTkFrame(self)
-        bottom.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="nsew")
-        bottom.grid_columnconfigure(0, weight=1)
-
-        header = ctk.CTkFrame(top, fg_color="transparent")
-        header.pack(fill="x", padx=10, pady=(10, 6))
-        self.status_var = ctk.StringVar(value="Current Spam: None | Status: Inactive")
-        ctk.CTkLabel(header, textvariable=self.status_var, anchor="w").pack(side="left", anchor="w")
-        ctk.CTkButton(header, text="Options", width=96, command=self._open_options).pack(
-            side="right", anchor="e"
+        self._table_ui = TableUiManager(
+            root=self,
+            table=self.profile_table,
+            scrollbar=self._table_scroll_y,
+            column_ratios=self._column_ratios,
+            column_min_widths=self._column_min_widths,
+            checkbox_col_width=self._checkbox_col_width,
         )
-        table_frame = ctk.CTkFrame(top, fg_color="transparent")
-        table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
-
-        columns = ("name", "window_title", "interval", "hotkey", "spam_key")
-        self.profile_table = ttk.Treeview(
-            table_frame,
-            columns=columns,
-            show=("tree", "headings"),
-            selectmode="browse",
-            style="Neon.Treeview",
-        )
-        self.profile_table.heading("#0", text="")
-        self.profile_table.column("#0", width=self._checkbox_col_width, anchor="center", stretch=False)
-        self.profile_table.heading("name", text="Name")
-        self.profile_table.heading("window_title", text="Window Title")
-        self.profile_table.heading("interval", text="Interval")
-        self.profile_table.heading("hotkey", text="Hotkey")
-        self.profile_table.heading("spam_key", text="Spam Key")
-        self.profile_table.column("name", width=180, anchor="w")
-        self.profile_table.column("window_title", width=340, anchor="w")
-        self.profile_table.column("interval", width=110, anchor="center")
-        self.profile_table.column("hotkey", width=150, anchor="center")
-        self.profile_table.column("spam_key", width=100, anchor="center")
-        self.profile_table.bind("<Configure>", self._on_table_resize, add="+")
-        self.profile_table.bind("<Map>", self._on_table_mapped, add="+")
-
-        self._table_scroll_y = ctk.CTkScrollbar(
-            table_frame,
-            orientation="vertical",
-            command=self.profile_table.yview,
-            width=10,
-        )
-        self._table_scroll_visible = True
-        self.profile_table.configure(yscrollcommand=self._on_table_yscroll)
-        self.profile_table.grid(row=0, column=0, sticky="nsew")
-        self._table_scroll_y.grid(row=0, column=1, sticky="ns", padx=(6, 0))
-        table_frame.grid_columnconfigure(0, weight=1)
-        table_frame.grid_rowconfigure(0, weight=1)
-        self._build_checkbox_images()
-        self.after_idle(self._apply_responsive_column_widths)
-        self.after_idle(self._update_table_scrollbar_visibility)
-
-        self.use_regex_var = ctk.BooleanVar(value=False)
-
-        ctk.CTkLabel(bottom, text="Profile Name").grid(row=1, column=0, sticky="w", padx=10, pady=(10, 2))
-        self.name_entry = ctk.CTkEntry(bottom, placeholder_text="Enter profile name...")
-        self.name_entry.grid(
-            row=2, column=0, sticky="ew", padx=10, pady=(0, 8)
-        )
-        ctk.CTkLabel(bottom, text="Window Title / Regex").grid(row=3, column=0, sticky="w", padx=10, pady=(0, 2))
-        self.window_title_entry = ctk.CTkEntry(bottom, placeholder_text="Enter window title...")
-        self.window_title_entry.grid(
-            row=4, column=0, sticky="ew", padx=10, pady=(0, 4)
-        )
-        ctk.CTkCheckBox(bottom, text="Use regex", variable=self.use_regex_var).grid(
-            row=5, column=0, sticky="w", padx=10, pady=(0, 8)
-        )
-
-        ctk.CTkLabel(bottom, text="Interval (ms)").grid(row=6, column=0, sticky="w", padx=10, pady=(0, 2))
-        self.interval_entry = ctk.CTkEntry(bottom, placeholder_text="Enter interval (ms)...")
-        self.interval_entry.grid(
-            row=7, column=0, sticky="ew", padx=10, pady=(0, 8)
-        )
-        ctk.CTkLabel(bottom, text="Hotkey (e.g., CTRL+F1, ^F1)").grid(
-            row=8, column=0, sticky="w", padx=10, pady=(0, 2)
-        )
-        self.hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="Enter hotkey...")
-        self.hotkey_entry.grid(
-            row=9, column=0, sticky="ew", padx=10, pady=(0, 8)
-        )
-        ctk.CTkLabel(bottom, text="Spam Key (e.g., F1)").grid(row=10, column=0, sticky="w", padx=10, pady=(0, 2))
-        self.spam_key_entry = ctk.CTkEntry(bottom, placeholder_text="Enter spam key...")
-        self.spam_key_entry.grid(
-            row=11, column=0, sticky="ew", padx=10, pady=(0, 8)
-        )
-
-        button_row = ctk.CTkFrame(bottom, fg_color="transparent")
-        button_row.grid(row=12, column=0, sticky="ew", padx=10, pady=(8, 16))
-        ctk.CTkButton(button_row, text="Add", command=self._add_profile).pack(side="left")
-        ctk.CTkButton(button_row, text="Update", command=self._update_selected).pack(side="left", padx=6)
-        ctk.CTkButton(button_row, text="Delete", command=self._delete_selected).pack(side="left")
+        self.profile_table.bind("<Configure>", self._table_ui.on_table_resize, add="+")
+        self.profile_table.bind("<Map>", self._table_ui.on_table_mapped, add="+")
+        self.profile_table.configure(yscrollcommand=self._table_ui.on_table_yscroll)
+        self._table_ui.build_checkbox_images()
+        self.after_idle(self._table_ui.apply_responsive_column_widths)
+        self.after_idle(self._table_ui.update_scrollbar_visibility)
 
     def _bind_events(self) -> None:
         self.profile_table.bind("<<TreeviewSelect>>", self._on_table_selected)
@@ -336,77 +230,6 @@ class MainWindow(ctk.CTk):
         if event.widget is not self:
             return
         self._save_config_debounced(delay_ms=300)
-
-    def _on_table_resize(self, _event=None) -> None:
-        self._apply_responsive_column_widths()
-        self._update_table_scrollbar_visibility()
-
-    def _on_table_mapped(self, _event=None) -> None:
-        # First map often occurs before final geometry is settled; schedule one
-        # more pass so initial column widths match the real rendered size.
-        self.after_idle(self._apply_responsive_column_widths)
-        self.after_idle(self._update_table_scrollbar_visibility)
-
-    def _on_table_yscroll(self, first: str, last: str) -> None:
-        self._table_scroll_y.set(first, last)
-        self._update_table_scrollbar_visibility(first, last)
-
-    def _update_table_scrollbar_visibility(
-        self,
-        first: str | float | None = None,
-        last: str | float | None = None,
-    ) -> None:
-        if first is None or last is None:
-            first, last = self.profile_table.yview()
-        first_f = float(first)
-        last_f = float(last)
-        should_show = (last_f - first_f) < 0.999999
-        if should_show == self._table_scroll_visible:
-            return
-        self._table_scroll_visible = should_show
-        if should_show:
-            self._table_scroll_y.grid(row=0, column=1, sticky="ns", padx=(6, 0))
-        else:
-            self._table_scroll_y.grid_remove()
-
-    def _apply_responsive_column_widths(self) -> None:
-        total_width = max(1, self.profile_table.winfo_width() - self._checkbox_col_width)
-        columns = ("name", "window_title", "interval", "hotkey", "spam_key")
-        computed: dict[str, int] = {}
-        used = 0
-        for column in columns[:-1]:
-            width = int(total_width * self._column_ratios[column])
-            width = max(self._column_min_widths[column], width)
-            computed[column] = width
-            used += width
-        last = columns[-1]
-        computed[last] = max(self._column_min_widths[last], total_width - used)
-
-        for column in columns:
-            self.profile_table.column(column, width=computed[column], stretch=True)
-
-    def _build_checkbox_images(self) -> None:
-        self._checkbox_images = {
-            False: self._create_checkbox_image(checked=False),
-            True: self._create_checkbox_image(checked=True),
-        }
-
-    def _create_checkbox_image(self, checked: bool) -> tk.PhotoImage:
-        image = tk.PhotoImage(width=18, height=18)
-        image.put("#9ca3af", to=(0, 0, 17, 17))
-        image.put("#ffffff", to=(1, 1, 16, 16))
-        if checked:
-            image.put("#22c55e", to=(1, 1, 16, 16))
-            check_points = [
-                (3, 9), (4, 10), (5, 11), (6, 12), (7, 13),
-                (8, 12), (9, 11), (10, 10), (11, 9),
-                (12, 8), (13, 7), (14, 6), (15, 5),
-            ]
-            for x, y in check_points:
-                image.put("#14532d", to=(x, y, x, y))
-                if y + 1 < 18:
-                    image.put("#14532d", to=(x, y + 1, x, y + 1))
-        return image
 
     def _open_options(self) -> None:
         if self._options_dialog is not None and self._options_dialog.winfo_exists():
@@ -424,9 +247,20 @@ class MainWindow(ctk.CTk):
         dialog.bind("<Destroy>", self._on_options_dialog_destroyed, add="+")
         dialog.transient(self)
         self._center_dialog_on_parent(dialog)
-        dialog.focus()
+        self._set_modal_popup(dialog)
+
+    def _set_modal_popup(self, dialog: tk.Toplevel) -> None:
+        # Make popups modal so interactions stay within the popup window.
+        dialog.lift()
+        dialog.focus_force()
+        dialog.grab_set()
 
     def _on_options_dialog_destroyed(self, _event=None) -> None:
+        try:
+            if self.grab_current() is self._options_dialog:
+                self.grab_release()
+        except tk.TclError:
+            pass
         self._options_dialog = None
 
     def _center_dialog_on_parent(self, dialog: tk.Toplevel) -> None:
@@ -498,7 +332,7 @@ class MainWindow(ctk.CTk):
 
     def _schedule_theme_sync(self) -> None:
         current = ctk.get_appearance_mode().lower()
-        if current != self._last_appearance_mode:
+        if current != self._table_ui.last_appearance_mode:
             self._apply_table_theme()
         self._theme_sync_job = self.after(500, self._schedule_theme_sync)
 
@@ -731,7 +565,7 @@ class MainWindow(ctk.CTk):
             self.profile_table.insert(
                 "",
                 tk.END,
-                image=self._checkbox_images[profile.is_active],
+                image=self._table_ui.checkbox_images[profile.is_active],
                 values=(
                     profile.name,
                     profile.window_title,
@@ -750,6 +584,9 @@ class MainWindow(ctk.CTk):
                 self._on_table_selected()
                 break
 
+    def _update_table_scrollbar_visibility(self) -> None:
+        self._table_ui.update_scrollbar_visibility()
+
     def _update_table_row(self, index: int) -> None:
         children = self.profile_table.get_children()
         if index < 0 or index >= len(children):
@@ -758,7 +595,7 @@ class MainWindow(ctk.CTk):
         item_id = children[index]
         self.profile_table.item(
             item_id,
-            image=self._checkbox_images[profile.is_active],
+            image=self._table_ui.checkbox_images[profile.is_active],
             values=(
                 profile.name,
                 profile.window_title,
@@ -812,19 +649,6 @@ class MainWindow(ctk.CTk):
         if self._options_dialog is not None and self._options_dialog.winfo_exists():
             self._options_dialog.overlay_x_var.set(str(center_x))
             self._options_dialog.overlay_y_var.set(str(center_y))
-        if self._overlay_position_save_job is not None:
-            self.after_cancel(self._overlay_position_save_job)
-        self._overlay_position_save_job = self.after(1000, self._save_overlay_position_debounced)
-
-    def _save_overlay_position_debounced(self) -> None:
-        self._overlay_position_save_job = None
-        if self._pending_overlay_center is None:
-            return
-        center_x, center_y = self._pending_overlay_center
-        self._pending_overlay_center = None
-        self._config.overlay.x = center_x
-        self._config.overlay.y = center_y
-        self._save_config()
 
     def _toggle_profile_active(self, index: int, persist: bool = True) -> None:
         if index < 0 or index >= len(self._config.profiles):
@@ -880,9 +704,6 @@ class MainWindow(ctk.CTk):
         if self._theme_sync_job is not None:
             self.after_cancel(self._theme_sync_job)
             self._theme_sync_job = None
-        if self._overlay_position_save_job is not None:
-            self.after_cancel(self._overlay_position_save_job)
-            self._overlay_position_save_job = None
         if self._config_save_job is not None:
             self.after_cancel(self._config_save_job)
             self._config_save_job = None

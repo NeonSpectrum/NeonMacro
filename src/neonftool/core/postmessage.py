@@ -17,7 +17,7 @@ import win32process
 from .keymaps import normalize_spam_key_combo
 
 logger = logging.getLogger(__name__)
-KEYUP_DELAY_SECONDS = 0.015
+KEYUP_DELAY_SECONDS = 0.010
 _USER32 = ctypes.WinDLL("user32", use_last_error=True)
 
 
@@ -105,19 +105,6 @@ def send_key(hwnd: int, key_name: str) -> bool:
         err = ctypes.get_last_error()
         return ok, err
 
-    def _post_pair(
-        target_hwnd: int,
-        vk_code: int,
-        down_lparam: int,
-        up_lparam: int,
-        keyup_delay_seconds: float = KEYUP_DELAY_SECONDS,
-    ) -> tuple[bool, int, bool, int]:
-        down_ok, down_err = _post_message(target_hwnd, win32con.WM_KEYDOWN, vk_code, down_lparam)
-        if down_ok and keyup_delay_seconds > 0:
-            time.sleep(keyup_delay_seconds)
-        up_ok, up_err = _post_message(target_hwnd, win32con.WM_KEYUP, vk_code, up_lparam)
-        return down_ok, down_err, up_ok, up_err
-
     canonical, vk_sequence = _normalized_spam_key_combo_cached(key_name)
     modifier_vks = vk_sequence[:-1]
     main_vk = vk_sequence[-1]
@@ -140,8 +127,13 @@ def send_key(hwnd: int, key_name: str) -> bool:
         scan_code = win32api.MapVirtualKey(main_vk, 0)
         lparam_down = 1 | (scan_code << 16)
         lparam_up = lparam_down | (1 << 30) | (1 << 31)
-        last_down_ok, last_down_err, last_up_ok, last_up_err = _post_pair(
-            target_hwnd, main_vk, lparam_down, lparam_up
+        last_down_ok, last_down_err = _post_message(
+            target_hwnd, win32con.WM_KEYDOWN, main_vk, lparam_down
+        )
+        if last_down_ok and KEYUP_DELAY_SECONDS > 0:
+            time.sleep(KEYUP_DELAY_SECONDS)
+        last_up_ok, last_up_err = _post_message(
+            target_hwnd, win32con.WM_KEYUP, main_vk, lparam_up
         )
         for modifier_vk in reversed(modifier_vks):
             scan_code = win32api.MapVirtualKey(modifier_vk, 0)
