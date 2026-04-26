@@ -38,12 +38,16 @@ class MainWindow(ctk.CTk):
         self.title("NeonFtool")
         self._apply_window_icon()
         self._default_width = 600
-        self._default_height = 850
-        self.geometry(f"{self._default_width}x{self._default_height}")
-        self._center_on_screen(self._default_width, self._default_height)
+        self._default_height = 700
+        self._minimum_width = 500
+        self._table_panel_min_height = 180
+        self._details_panel_min_height = 360
+        self._outer_vertical_padding = 100
+        self.minsize(self._minimum_width, self._minimum_window_height())
 
         self._store = ConfigStore(config_path)
         self._config = self._store.load()
+        self._apply_initial_window_geometry()
 
         self._engine = SpamEngine(
             allowed_executables_supplier=lambda: self._config.options.allowed_applications,
@@ -139,6 +143,34 @@ class MainWindow(ctk.CTk):
         y = max(0, (screen_height - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
 
+    def _minimum_window_height(self) -> int:
+        return (
+            self._table_panel_min_height
+            + self._details_panel_min_height
+            + self._outer_vertical_padding
+        )
+
+    def _apply_initial_window_geometry(self) -> None:
+        width = self._coerce_window_width(self._config.window_width)
+        height = self._coerce_window_height(self._config.window_height)
+        x = self._config.window_x
+        y = self._config.window_y
+        if x is None or y is None:
+            self.geometry(f"{width}x{height}")
+            self._center_on_screen(width, height)
+            return
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _coerce_window_width(self, value: int | None) -> int:
+        if value is None:
+            return self._default_width
+        return max(self._minimum_width, value)
+
+    def _coerce_window_height(self, value: int | None) -> int:
+        if value is None:
+            return self._default_height
+        return max(self._minimum_window_height(), value)
+
     def _apply_table_theme(self) -> None:
         appearance = ctk.get_appearance_mode().lower()
         is_dark = appearance == "dark"
@@ -195,8 +227,9 @@ class MainWindow(ctk.CTk):
 
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        # Keep the form section stable; let the table section absorb resize first.
+        self.grid_rowconfigure(0, weight=1, minsize=self._table_panel_min_height)
+        self.grid_rowconfigure(1, weight=0, minsize=self._details_panel_min_height)
 
         top = ctk.CTkFrame(self)
         top.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="nsew")
@@ -301,7 +334,13 @@ class MainWindow(ctk.CTk):
     def _bind_events(self) -> None:
         self.profile_table.bind("<<TreeviewSelect>>", self._on_table_selected)
         self.profile_table.bind("<Button-1>", self._on_table_click, add="+")
+        self.bind("<Configure>", self._on_window_configure, add="+")
         self.protocol("WM_DELETE_WINDOW", self._on_exit)
+
+    def _on_window_configure(self, event: tk.Event) -> None:
+        if event.widget is not self:
+            return
+        self._save_config_debounced(delay_ms=300)
 
     def _on_table_resize(self, _event=None) -> None:
         self._apply_responsive_column_widths()
@@ -752,6 +791,11 @@ class MainWindow(ctk.CTk):
         if self._config_save_job is not None:
             self.after_cancel(self._config_save_job)
             self._config_save_job = None
+        if self.state() != "zoomed":
+            self._config.window_width = self.winfo_width()
+            self._config.window_height = self.winfo_height()
+            self._config.window_x = self.winfo_x()
+            self._config.window_y = self.winfo_y()
         x, y = self._overlay.get_position()
         self._config.overlay.x = x
         self._config.overlay.y = y
