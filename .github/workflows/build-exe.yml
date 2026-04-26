@@ -44,6 +44,15 @@ jobs:
         shell: pwsh
         run: |
           $iconPath = "assets\icons\logo.ico"
+          New-Item -ItemType Directory -Force -Path "build" | Out-Null
+          $launcherPath = "build\nuitka_entry.py"
+          @(
+            "from neonftool.app import main",
+            "",
+            "if __name__ == '__main__':",
+            "    main()"
+          ) | Set-Content -Path $launcherPath -Encoding UTF8
+
           $commonArgs = @(
             "--onefile",
             "--standalone",
@@ -60,13 +69,13 @@ jobs:
           $guiArgs = @(
             "--windows-console-mode=disable",
             "--output-filename=NeonFtool.exe"
-          ) + $commonArgs + @("-m", "neonftool.app")
+          ) + $commonArgs + @($launcherPath)
           python -m nuitka @guiArgs
 
           $debugArgs = @(
             "--windows-console-mode=force",
             "--output-filename=NeonFtool-debug.exe"
-          ) + $commonArgs + @("-m", "neonftool.app")
+          ) + $commonArgs + @($launcherPath)
           python -m nuitka @debugArgs
 
       - name: Verify built executable exists
