@@ -282,7 +282,7 @@ class MainWindow(ctk.CTk):
             "- Named keys: {DEL} {INS} {PGUP} {PGDN} {HOME} {END} {RETURN} {ESCAPE} {BACKSPACE} {TAB} {PRTSCN} {PAUSE} {SPACE} {CAPSLOCK} {NUMLOCK} {SCROLLLOCK} {BREAK} {CTRLBREAK}\n"
             "- Mouse: {LMB}, {RMB}, {MMB}, {MB4}, {MB5}\n"
             "- Rule: spam key must be exactly one key with no modifier.\n"
-            "- Examples: F1, A, 7, /, `, {LMB}, {DEL}, {PRTSCN}\n\n"
+            "- Examples: {F1}, A, 7, /, `, {LMB}, {DEL}, {PRTSCN}\n\n"
             "Hotkey input\n"
             "- Format: append one key after optional modifiers.\n"
             "- Modifiers: {CTRL} {RCTRL} {ALT} {RALT} {SHIFT} {RSHIFT} {LWIN} {RWIN} {APPS}\n"

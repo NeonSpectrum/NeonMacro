@@ -119,7 +119,7 @@ def build_main_window_widgets(
     hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="Enter hotkey...")
     hotkey_entry.grid(row=9, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-    ctk.CTkLabel(bottom, text="Spam Key (single key, e.g., F1, A, /)").grid(
+    ctk.CTkLabel(bottom, text="Spam Key (single key, e.g., {F1}, A, /)").grid(
         row=10, column=0, sticky="w", padx=10, pady=(0, 2)
     )
     spam_key_entry = ctk.CTkEntry(bottom, placeholder_text="Enter spam key...")
