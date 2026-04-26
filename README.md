@@ -1,42 +1,74 @@
 # NeonFtool
 
-A Windows desktop app (CustomTkinter) for creating configurable key-spam profiles that target windows by title and send keys via the Win32 `PostMessage` API.
+NeonFtool is a Windows desktop app (built with CustomTkinter) for creating configurable key-spam profiles. It targets windows by title and sends keys through the Win32 `PostMessage` API.
 
-## Features
+## What it does
 
-- Spam profiles with:
-  - Name
-  - Window title pattern (plain text or regex)
+- Create multiple spam profiles with:
+  - Profile name
+  - Window title matcher (plain text or regex)
   - Spam key (`1-9`, `F1-F9`)
-  - Interval (ms)
-  - Profile hotkey (to select active profile)
+  - Interval in milliseconds
+  - Profile hotkey (select active profile quickly)
   - Active/inactive status
-- Global hotkey to toggle spam execution
-- Options:
+- Use a global hotkey to start/stop spamming.
+- Show an always-on-top draggable overlay for quick status.
+- Configure:
   - Global toggle hotkey
-  - Overlay enabled
-  - Overlay lock
-  - Allowed application list (defaults to `Neuz.exe`)
-- Always-on-top draggable overlay showing selected profile + status
-- Auto-save JSON config for profiles, options, and overlay position
+  - Overlay enabled/locked
+  - Allowed application list (default: `Neuz.exe`)
+- Auto-save profiles, options, and overlay position to JSON.
 
-## Run locally
+## Requirements
 
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-neonftool
-```
+- Windows 10/11
+- Python 3.10+ recommended
 
-## Build EXE with Nuitka
+## Quick start (Poetry)
 
 ```powershell
-pip install -e . nuitka ordered-set zstandard
-python -m nuitka --onefile --standalone --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonftool\app.py
+poetry install
+poetry run neonftool
 ```
+
+If Poetry is not installed yet:
+
+```powershell
+pipx install poetry
+```
+
+## Build a single-file EXE (Nuitka + Poetry)
+
+```powershell
+poetry add --group dev nuitka ordered-set zstandard
+poetry run python -m nuitka --onefile --standalone --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonftool\app.py
+```
+
+Build output is written under `build\dist`.
+
+## Basic usage
+
+1. Launch `neonftool`.
+2. Create at least one profile and set:
+   - Target window title pattern
+   - Key and interval
+   - Optional per-profile hotkey
+3. Select the active profile.
+4. Use the global toggle hotkey to start/stop sending keys.
+5. Use the overlay to monitor current profile/status.
+
+## Troubleshooting
+
+- **Hotkeys do not trigger**
+  - Run the app as Administrator.
+  - Check for conflicts with other tools that capture global hotkeys.
+- **No keys sent to target app**
+  - Confirm the window title pattern matches the target window.
+  - Verify the process is included in the allowed app list.
+- **Unexpected behavior with regex matching**
+  - Start with plain-text matching, then switch to regex once confirmed.
 
 ## Notes
 
-- Requires Windows.
-- Global hotkeys rely on the `keyboard` package and may require admin permissions on some systems.
+- Windows only.
+- Global hotkeys rely on the `keyboard` package and may require elevated permissions on some systems.
