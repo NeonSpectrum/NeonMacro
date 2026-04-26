@@ -25,6 +25,9 @@ class OptionsDialog(ctk.CTkToplevel):
         self.force_overlay_visible_var = ctk.BooleanVar(value=options.force_overlay_visible)
         self.allow_parallel_var = ctk.BooleanVar(value=options.allow_parallel)
         self.auto_stop_on_key_press_var = ctk.BooleanVar(value=options.auto_stop_on_key_press)
+        self.restrict_profile_hotkeys_var = ctk.BooleanVar(
+            value=options.restrict_profile_hotkeys_to_allowed_apps
+        )
         self.auto_stop_keys_var = ctk.StringVar(value=";".join(options.auto_stop_keys))
         self.allowed_apps_var = ctk.StringVar(value=";".join(options.allowed_applications))
         self.overlay_x_var = ctk.StringVar(value=str(overlay_x))
@@ -88,6 +91,11 @@ class OptionsDialog(ctk.CTkToplevel):
             text="Enable auto stop when key press",
             variable=self.auto_stop_on_key_press_var,
         ).pack(anchor="w", padx=10, pady=2)
+        ctk.CTkCheckBox(
+            spam_group,
+            text="Profile hotkeys only work for allowed applications",
+            variable=self.restrict_profile_hotkeys_var,
+        ).pack(anchor="w", padx=10, pady=2)
         ctk.CTkLabel(spam_group, text="Auto stop keys (semicolon separated)").pack(
             anchor="w", padx=10, pady=(4, 0)
         )
@@ -115,6 +123,7 @@ class OptionsDialog(ctk.CTkToplevel):
             force_overlay_visible=self.force_overlay_visible_var.get(),
             allow_parallel=self.allow_parallel_var.get(),
             auto_stop_on_key_press=self.auto_stop_on_key_press_var.get(),
+            restrict_profile_hotkeys_to_allowed_apps=self.restrict_profile_hotkeys_var.get(),
             auto_stop_keys=stop_keys,
             allowed_applications=apps,
         )
@@ -134,6 +143,7 @@ class OptionsDialog(ctk.CTkToplevel):
             self.force_overlay_visible_var,
             self.allow_parallel_var,
             self.auto_stop_on_key_press_var,
+            self.restrict_profile_hotkeys_var,
             self.auto_stop_keys_var,
             self.allowed_apps_var,
         )

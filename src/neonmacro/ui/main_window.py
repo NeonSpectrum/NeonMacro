@@ -571,6 +571,12 @@ class MainWindow(ctk.CTk):
         self.after(0, lambda: self._toggle_profile_by_hotkey(profile_name))
 
     def _toggle_profile_by_hotkey(self, profile_name: str) -> None:
+        if self._config.options.restrict_profile_hotkeys_to_allowed_apps:
+            foreground = get_foreground_context()
+            if foreground is None:
+                return
+            if not is_allowed_application_focused(self._config.options, foreground.exe_name):
+                return
         for index, profile in enumerate(self._config.profiles):
             if profile.name == profile_name:
                 self._toggle_profile_active(index, persist=False)

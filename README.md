@@ -17,6 +17,7 @@ NeonMacro is a Windows desktop app (built with CustomTkinter) for creating confi
   - Global toggle hotkey
   - Overlay enabled/locked
   - Allowed application list (default: `Neuz.exe`)
+  - Optional restriction so profile hotkeys only work inside allowed applications
 - Auto-save profiles, options, and overlay position to JSON.
 
 ## Requirements
