@@ -86,6 +86,7 @@ jobs:
           }
 
           $buildArgs = @(
+            "--windows-console-mode=disable",
             "--output-filename=NeonFtool.exe"
           ) + $commonArgs + @($launcherPath)
           python -m poetry run python -m nuitka @buildArgs
