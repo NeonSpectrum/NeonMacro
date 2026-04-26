@@ -481,7 +481,9 @@ class MainWindow(ctk.CTk):
             enabled=self._config.options.auto_stop_on_key_press,
             stop_keys=self._config.options.auto_stop_keys,
         )
-        self._overlay.set_lock(self._config.options.lock_overlay)
+        self._overlay.set_lock(
+            self._config.options.lock_overlay and not self._config.options.force_overlay_visible
+        )
         self._sync_overlay_visibility()
 
     def _enforce_parallel_profile_policy(self) -> None:
@@ -807,6 +809,9 @@ class MainWindow(ctk.CTk):
 
     def _on_overlay_position_changed(self, center_x: int, center_y: int) -> None:
         self._pending_overlay_center = (center_x, center_y)
+        if self._options_dialog is not None and self._options_dialog.winfo_exists():
+            self._options_dialog.overlay_x_var.set(str(center_x))
+            self._options_dialog.overlay_y_var.set(str(center_y))
         if self._overlay_position_save_job is not None:
             self.after_cancel(self._overlay_position_save_job)
         self._overlay_position_save_job = self.after(1000, self._save_overlay_position_debounced)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import customtkinter as ctk
+from tkinter import messagebox
 
 from ..models import AppOptions
 
@@ -39,12 +40,17 @@ class OptionsDialog(ctk.CTkToplevel):
         ctk.CTkCheckBox(overlay_group, text="Enable overlay", variable=self.enable_overlay_var).pack(
             anchor="w", padx=10, pady=2
         )
-        ctk.CTkCheckBox(overlay_group, text="Click through overlay", variable=self.lock_overlay_var).pack(
+        self.lock_overlay_checkbox = ctk.CTkCheckBox(
+            overlay_group,
+            text="Click through overlay",
+            variable=self.lock_overlay_var,
+        )
+        self.lock_overlay_checkbox.pack(
             anchor="w", padx=10, pady=(2, 6)
         )
         ctk.CTkCheckBox(
             overlay_group,
-            text="Force overlay visible (debug)",
+            text="Force overlay visible",
             variable=self.force_overlay_visible_var,
         ).pack(anchor="w", padx=10, pady=(0, 6))
         ctk.CTkLabel(overlay_group, text="Coordinates").pack(anchor="w", padx=10, pady=(0, 2))
@@ -60,8 +66,14 @@ class OptionsDialog(ctk.CTkToplevel):
         )
         ctk.CTkButton(
             coords_row,
-            text="Reset Overlay Position",
-            width=170,
+            text="Save",
+            width=80,
+            command=self._save_overlay_position,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            coords_row,
+            text="Reset",
+            width=80,
             command=self._reset_overlay_position,
         ).pack(side="right", padx=(8, 0))
 
@@ -90,6 +102,8 @@ class OptionsDialog(ctk.CTkToplevel):
         )
 
         self._register_autosave_callbacks()
+        self.force_overlay_visible_var.trace_add("write", self._on_force_overlay_visible_changed)
+        self._apply_force_overlay_visible_state()
         self.bind("<Destroy>", self._on_destroy, add="+")
 
     def _build_options(self) -> AppOptions:
@@ -122,8 +136,6 @@ class OptionsDialog(ctk.CTkToplevel):
             self.auto_stop_on_key_press_var,
             self.auto_stop_keys_var,
             self.allowed_apps_var,
-            self.overlay_x_var,
-            self.overlay_y_var,
         )
         for var in watched_vars:
             var.trace_add("write", self._schedule_autosave)
@@ -147,6 +159,27 @@ class OptionsDialog(ctk.CTkToplevel):
     def _reset_overlay_position(self) -> None:
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
-        self.overlay_x_var.set(str(screen_w // 2))
-        self.overlay_y_var.set(str(screen_h // 2))
+        center_x = screen_w // 2
+        center_y = screen_h // 2
+        self.overlay_x_var.set(str(center_x))
+        self.overlay_y_var.set(str(center_y))
+        options = self._build_options()
+        self.on_save(options, (center_x, center_y))
+
+    def _save_overlay_position(self) -> None:
+        overlay_position = self._parse_overlay_position()
+        if overlay_position is None:
+            messagebox.showerror("Options", "Overlay coordinates must be valid numbers.")
+            return
+        options = self._build_options()
+        self.on_save(options, overlay_position)
+
+    def _on_force_overlay_visible_changed(self, *_args) -> None:
+        self._apply_force_overlay_visible_state()
+
+    def _apply_force_overlay_visible_state(self) -> None:
+        if self.force_overlay_visible_var.get():
+            self.lock_overlay_checkbox.configure(state="disabled")
+            return
+        self.lock_overlay_checkbox.configure(state="normal")
 
