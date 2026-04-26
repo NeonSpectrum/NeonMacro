@@ -17,6 +17,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Cache Nuitka artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\Nuitka\Nuitka\Cache
+            ~\.cache\Nuitka
+          key: ${{ runner.os }}-nuitka-${{ hashFiles('pyproject.toml', 'src/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-nuitka-
 
       - name: Install dependencies
         shell: pwsh
