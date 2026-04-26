@@ -8,6 +8,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
+import win32gui
 
 from ..core.config import ConfigStore
 from ..core.hotkeys import HotkeyManager
@@ -29,6 +30,7 @@ from .overlay_controller import (
     is_allowed_application_focused,
 )
 from .table_ui_manager import TableUiManager
+from .window_icon import apply_window_icon
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ class MainWindow(ctk.CTk):
         super().__init__()
         self.title("NeonMacro")
         self._window_icon_photo: tk.PhotoImage | None = None
+        self._window_icon_ico_path: str | None = None
         self._apply_window_icon()
         self._default_width = 600
         self._default_height = 700
@@ -61,6 +64,7 @@ class MainWindow(ctk.CTk):
         self._hotkeys = HotkeyManager(
             on_profile_hotkey=self._on_profile_selected_by_hotkey,
             on_auto_stop_hotkey=self._on_auto_stop_hotkey,
+            on_settings_toggle_hotkey=self._on_settings_toggle_hotkey,
         )
         self._overlay = OverlayWindow(
             self,
@@ -76,6 +80,7 @@ class MainWindow(ctk.CTk):
         self._pending_overlay_center: tuple[int, int] | None = None
         self._overlay_is_dragging = False
         self._options_dialog: OptionsDialog | None = None
+        self._options_return_focus_hwnd: int | None = None
         self._last_engine_error_message: str = ""
         self._last_engine_error_at: float = 0.0
         self._column_ratios: dict[str, float] = {
@@ -121,43 +126,11 @@ class MainWindow(ctk.CTk):
             )
 
     def _apply_window_icon(self) -> None:
-        # EXE icon metadata and runtime window icon are separate on Windows.
-        # Prefer PNG via iconphoto for cleaner runtime rendering in Tk, then
-        # fall back to ICO for environments where PNG loading is unavailable.
-        candidate_pngs = [
-            Path(__file__).resolve().parents[1] / "assets" / "icons" / "logo.png",
-            Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.png",
-        ]
-        for icon_path in candidate_pngs:
-            if not icon_path.exists():
-                continue
-            try:
-                self._window_icon_photo = tk.PhotoImage(file=str(icon_path))
-                self.iconphoto(True, self._window_icon_photo)
-                # CTk schedules a later default-icon assignment on Windows that
-                # is skipped only if this flag is set by iconbitmap(). Since we
-                # intentionally use iconphoto() here, mark it manually.
-                if hasattr(self, "_iconbitmap_method_called"):
-                    self._iconbitmap_method_called = True
-                return
-            except tk.TclError:
-                continue
-
-        # In onefile builds, bundle an icon at neonmacro/assets/icons/logo.ico
-        # and prefer that path first.
-        candidate_icons = [
-            Path(__file__).resolve().parents[1] / "assets" / "icons" / "logo.ico",
-            Path(__file__).resolve().parents[3] / "assets" / "icons" / "logo.ico",
-            Path(ctk.__file__).resolve().parent / "assets" / "icons" / "CustomTkinter_icon_Windows.ico",
-        ]
-        for icon_path in candidate_icons:
-            if not icon_path.exists():
-                continue
-            try:
-                self.iconbitmap(str(icon_path))
-                return
-            except tk.TclError:
-                continue
+        result = apply_window_icon(self, apply_default_icon=True)
+        self._window_icon_ico_path = result.ico_path
+        self._window_icon_photo = result.photo
+        if self._window_icon_photo is not None and hasattr(self, "_iconbitmap_method_called"):
+            self._iconbitmap_method_called = True
 
     def _center_on_screen(self, width: int, height: int) -> None:
         screen_width = self.winfo_screenwidth()
@@ -258,7 +231,12 @@ class MainWindow(ctk.CTk):
             return
         self._save_config_debounced(delay_ms=300)
 
-    def _open_options(self) -> None:
+    def _open_options(
+        self,
+        center_on_window_rect: tuple[int, int, int, int] | None = None,
+        topmost: bool = False,
+        return_focus_hwnd: int | None = None,
+    ) -> None:
         if self._options_dialog is not None and self._options_dialog.winfo_exists():
             self._options_dialog.lift()
             self._options_dialog.focus_force()
@@ -271,10 +249,48 @@ class MainWindow(ctk.CTk):
             on_save=self._save_options,
         )
         self._options_dialog = dialog
+        self._options_return_focus_hwnd = return_focus_hwnd
         dialog.bind("<Destroy>", self._on_options_dialog_destroyed, add="+")
         dialog.transient(self)
-        self._center_dialog_on_parent(dialog)
+        if center_on_window_rect is None:
+            self._center_dialog_on_parent(dialog)
+        else:
+            self._center_dialog_on_rect(dialog, center_on_window_rect)
+        if topmost:
+            dialog.attributes("-topmost", True)
         self._set_modal_popup(dialog)
+
+    def _toggle_settings_overlay(self) -> None:
+        if self._options_dialog is not None and self._options_dialog.winfo_exists():
+            self._options_dialog.destroy()
+            return
+        if self.state() == "iconic":
+            self.deiconify()
+        self.lift()
+        self.focus_force()
+        self._open_options()
+
+    def _toggle_settings_overlay_on_allowed_app(self) -> None:
+        if self._options_dialog is not None and self._options_dialog.winfo_exists():
+            return_focus_hwnd = self._options_return_focus_hwnd
+            self._options_dialog.destroy()
+            if return_focus_hwnd:
+                self.after(0, lambda: self._restore_foreground_focus(return_focus_hwnd))
+            return
+        foreground = get_foreground_context()
+        if foreground is None:
+            return
+        if not is_allowed_application_focused(self._config.options, foreground.exe_name):
+            return
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(foreground.hwnd)
+        except win32gui.error:
+            return
+        self._open_options(
+            center_on_window_rect=(left, top, right, bottom),
+            topmost=True,
+            return_focus_hwnd=foreground.hwnd,
+        )
 
     def _open_key_help(self) -> None:
         symbols = "` ~ ! @ # $ % ^ & * ( ) - _ = + [ ] { } \\ | ; : ' \" , < . > / ?"
@@ -309,6 +325,17 @@ class MainWindow(ctk.CTk):
         except tk.TclError:
             pass
         self._options_dialog = None
+        self._options_return_focus_hwnd = None
+
+    def _restore_foreground_focus(self, hwnd: int) -> None:
+        try:
+            if hwnd == int(self.winfo_id()):
+                return
+            if not win32gui.IsWindow(hwnd):
+                return
+            win32gui.SetForegroundWindow(hwnd)
+        except (ValueError, tk.TclError, win32gui.error):
+            return
 
     def _center_dialog_on_parent(self, dialog: tk.Toplevel) -> None:
         self.update_idletasks()
@@ -326,6 +353,30 @@ class MainWindow(ctk.CTk):
 
         # Clamp within the virtual desktop so multi-monitor coordinates
         # (including negative x/y on left/top monitors) are respected.
+        virtual_x = self.winfo_vrootx()
+        virtual_y = self.winfo_vrooty()
+        virtual_w = self.winfo_vrootwidth()
+        virtual_h = self.winfo_vrootheight()
+        max_x = virtual_x + virtual_w - dialog_w
+        max_y = virtual_y + virtual_h - dialog_h
+        x = max(virtual_x, min(x, max_x))
+        y = max(virtual_y, min(y, max_y))
+        dialog.geometry(f"+{x}+{y}")
+
+    def _center_dialog_on_rect(
+        self,
+        dialog: tk.Toplevel,
+        rect: tuple[int, int, int, int],
+    ) -> None:
+        self.update_idletasks()
+        dialog.update_idletasks()
+        left, top, right, bottom = rect
+        rect_w = max(1, right - left)
+        rect_h = max(1, bottom - top)
+        dialog_w = max(dialog.winfo_width(), dialog.winfo_reqwidth())
+        dialog_h = max(dialog.winfo_height(), dialog.winfo_reqheight())
+        x = left + max(0, (rect_w - dialog_w) // 2)
+        y = top + max(0, (rect_h - dialog_h) // 2)
         virtual_x = self.winfo_vrootx()
         virtual_y = self.winfo_vrooty()
         virtual_w = self.winfo_vrootwidth()
@@ -367,6 +418,23 @@ class MainWindow(ctk.CTk):
         self._hotkeys.apply_auto_stop_hotkeys(
             enabled=self._config.options.auto_stop_on_key_press,
             stop_keys=self._config.options.auto_stop_keys,
+        )
+        settings_hotkey = self._hotkeys.normalize_hotkey(
+            self._config.options.settings_toggle_hotkey
+        )
+        if not settings_hotkey:
+            raise ValueError("Settings overlay hotkey format is invalid.")
+        profile_hotkeys = {
+            self._hotkeys.normalize_hotkey(profile.select_hotkey)
+            for profile in self._config.profiles
+            if profile.select_hotkey.strip()
+        }
+        if settings_hotkey in profile_hotkeys:
+            raise ValueError(
+                "Settings overlay hotkey conflicts with a profile hotkey. Pick a different key."
+            )
+        self._config.options.settings_toggle_hotkey = self._hotkeys.apply_settings_toggle_hotkey(
+            settings_hotkey
         )
         self._overlay.set_lock(
             self._config.options.lock_overlay and not self._config.options.force_overlay_visible
@@ -741,6 +809,9 @@ class MainWindow(ctk.CTk):
 
     def _on_auto_stop_hotkey(self) -> None:
         self.after(0, self._stop_all_active_profiles_if_allowed_app)
+
+    def _on_settings_toggle_hotkey(self) -> None:
+        self.after(0, self._toggle_settings_overlay_on_allowed_app)
 
     def _stop_all_active_profiles_if_allowed_app(self) -> None:
         foreground = get_foreground_context()

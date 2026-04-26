@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import customtkinter as ctk
+from pathlib import Path
 from tkinter import messagebox
 
 from ..models import AppOptions
+from .window_icon import apply_window_icon
 
 
 class OptionsDialog(ctk.CTkToplevel):
@@ -19,6 +21,8 @@ class OptionsDialog(ctk.CTkToplevel):
         self.title("Options")
         self.resizable(False, False)
         self.on_save = on_save
+        self._window_icon_photo = None
+        self._window_icon_ico_path = None
 
         self.enable_overlay_var = ctk.BooleanVar(value=options.enable_overlay)
         self.lock_overlay_var = ctk.BooleanVar(value=options.lock_overlay)
@@ -31,6 +35,7 @@ class OptionsDialog(ctk.CTkToplevel):
         )
         self.auto_stop_keys_var = ctk.StringVar(value=";".join(options.auto_stop_keys))
         self.allowed_apps_var = ctk.StringVar(value=";".join(options.allowed_applications))
+        self.settings_toggle_hotkey_var = ctk.StringVar(value=options.settings_toggle_hotkey)
         self.overlay_x_var = ctk.StringVar(value=str(overlay_x))
         self.overlay_y_var = ctk.StringVar(value=str(overlay_y))
         self._autosave_job: str | None = None
@@ -114,11 +119,49 @@ class OptionsDialog(ctk.CTkToplevel):
         ctk.CTkEntry(spam_group, textvariable=self.allowed_apps_var, width=320).pack(
             fill="x", padx=10, pady=(2, 10)
         )
+        ctk.CTkLabel(spam_group, text="Settings overlay hotkey").pack(anchor="w", padx=10)
+        ctk.CTkEntry(
+            spam_group,
+            textvariable=self.settings_toggle_hotkey_var,
+            width=320,
+            placeholder_text="e.g. {F10}",
+        ).pack(fill="x", padx=10, pady=(2, 10))
 
         self._register_autosave_callbacks()
         self.force_overlay_visible_var.trace_add("write", self._on_force_overlay_visible_changed)
         self._apply_force_overlay_visible_state()
+        self._apply_window_icon(parent)
         self.bind("<Destroy>", self._on_destroy, add="+")
+
+    def iconbitmap(self, bitmap=None, default=None):
+        if self._is_customtkinter_default_icon(bitmap):
+            return None
+        return super().iconbitmap(bitmap, default=default)
+
+    def wm_iconbitmap(self, bitmap=None, default=None):
+        if self._is_customtkinter_default_icon(bitmap):
+            return None
+        return super().wm_iconbitmap(bitmap, default=default)
+
+    @staticmethod
+    def _is_customtkinter_default_icon(bitmap) -> bool:
+        if not bitmap:
+            return False
+        try:
+            return Path(str(bitmap)).name.lower() == "customtkinter_icon_windows.ico"
+        except Exception:
+            return False
+
+    def _apply_window_icon(self, parent: ctk.CTk) -> None:
+        preferred_ico_path = getattr(parent, "_window_icon_ico_path", None)
+        existing_photo = getattr(parent, "_window_icon_photo", None)
+        result = apply_window_icon(
+            self,
+            preferred_ico_path=preferred_ico_path,
+            existing_photo=existing_photo,
+        )
+        self._window_icon_ico_path = result.ico_path
+        self._window_icon_photo = result.photo
 
     def _build_options(self) -> AppOptions:
         apps = [item.strip() for item in self.allowed_apps_var.get().split(";") if item.strip()]
@@ -133,6 +176,7 @@ class OptionsDialog(ctk.CTkToplevel):
             restrict_profile_hotkeys_to_allowed_apps=self.restrict_profile_hotkeys_var.get(),
             auto_stop_keys=stop_keys,
             allowed_applications=apps,
+            settings_toggle_hotkey=self.settings_toggle_hotkey_var.get().strip(),
         )
 
     def _parse_overlay_position(self) -> tuple[int, int] | None:
@@ -154,6 +198,7 @@ class OptionsDialog(ctk.CTkToplevel):
             self.restrict_profile_hotkeys_var,
             self.auto_stop_keys_var,
             self.allowed_apps_var,
+            self.settings_toggle_hotkey_var,
         )
         for var in watched_vars:
             var.trace_add("write", self._schedule_autosave)

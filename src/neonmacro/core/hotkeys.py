@@ -132,11 +132,14 @@ class HotkeyManager:
         self,
         on_profile_hotkey: Callable[[str], None],
         on_auto_stop_hotkey: Callable[[], None],
+        on_settings_toggle_hotkey: Callable[[], None],
     ) -> None:
         self._on_profile_hotkey = on_profile_hotkey
         self._on_auto_stop_hotkey = on_auto_stop_hotkey
+        self._on_settings_toggle_hotkey = on_settings_toggle_hotkey
         self._registered_ids: list[int] = []
         self._registered_auto_stop_ids: list[int] = []
+        self._registered_settings_hotkey_id: int | None = None
         self._registered_mouse_handlers: list[Callable] = []
         self._registered_auto_stop_mouse_handlers: list[Callable] = []
         self._probe_hotkey_id = 0xA000
@@ -222,6 +225,29 @@ class HotkeyManager:
             return False
         return self._can_bind_hotkey(parsed)
 
+    def apply_settings_toggle_hotkey(self, hotkey: str) -> str:
+        self._clear_settings_toggle_hotkey()
+        normalized = self._normalize_hotkey(hotkey)
+        if not normalized:
+            raise ValueError("Settings overlay hotkey format is invalid.")
+        if normalized in RESERVED_HOTKEYS:
+            raise ValueError("Settings overlay hotkey is reserved by Windows.")
+        parsed = _parse_hotkey(normalized)
+        if parsed is None:
+            raise ValueError("Settings overlay hotkey format is invalid.")
+        if not self._can_bind_hotkey(parsed):
+            raise ValueError(
+                "Settings overlay hotkey cannot be bound. It may already be in use."
+            )
+        if parsed.includes_mouse:
+            raise ValueError("Settings overlay hotkey must use a keyboard key.")
+        self._registered_settings_hotkey_id = keyboard.add_hotkey(
+            parsed.keyboard_hotkey,
+            self._on_settings_toggle_hotkey,
+            suppress=False,
+        )
+        return normalized
+
     def _normalize_hotkey(self, hotkey: str) -> str:
         parsed = _parse_hotkey(hotkey)
         if parsed is None:
@@ -288,6 +314,7 @@ class HotkeyManager:
     def shutdown(self) -> None:
         self._clear_profile_hotkeys()
         self._clear_auto_stop_hotkeys()
+        self._clear_settings_toggle_hotkey()
 
     def _clear_profile_hotkeys(self) -> None:
         for hotkey_id in self._registered_ids:
@@ -310,6 +337,14 @@ class HotkeyManager:
         for handler in self._registered_auto_stop_mouse_handlers:
             mouse.unhook(handler)
         self._registered_auto_stop_mouse_handlers.clear()
+
+    def _clear_settings_toggle_hotkey(self) -> None:
+        if self._registered_settings_hotkey_id is not None:
+            try:
+                keyboard.remove_hotkey(self._registered_settings_hotkey_id)
+            except KeyError:
+                pass
+            self._registered_settings_hotkey_id = None
 
 
 def _normalize_modifier_token(token: str) -> str | None:

@@ -17,6 +17,7 @@ class AppOptions:
     restrict_profile_hotkeys_to_allowed_apps: bool = False
     auto_stop_keys: list[str] = field(default_factory=lambda: list(DEFAULT_AUTO_STOP_KEYS))
     allowed_applications: list[str] = field(default_factory=list)
+    settings_toggle_hotkey: str = "{F10}"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -39,4 +40,5 @@ class AppOptions:
             ),
             auto_stop_keys=normalized_stop_keys,
             allowed_applications=normalized_apps,
+            settings_toggle_hotkey=str(data.get("settings_toggle_hotkey", "{F10}")),
         )
