@@ -3,12 +3,15 @@ name: Build Windows EXE
 on:
   push:
     branches: ["main", "master"]
+    tags: ["v*", "*"]
   pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,25 +44,75 @@ jobs:
         shell: pwsh
         run: |
           $iconPath = "assets\icons\logo.ico"
-          $nuitkaArgs = @(
+          $commonArgs = @(
             "--onefile",
             "--standalone",
             "--assume-yes-for-downloads",
             "--enable-plugin=tk-inter",
-            "--windows-console-mode=disable",
             "--output-dir=build\dist"
           )
 
           # Use custom app icon when logo.ico exists.
           if (Test-Path $iconPath) {
-            $nuitkaArgs += "--windows-icon-from-ico=$iconPath"
+            $commonArgs += "--windows-icon-from-ico=$iconPath"
           }
 
-          $nuitkaArgs += "src\neonftool\app.py"
-          python -m nuitka @nuitkaArgs
+          $guiArgs = @(
+            "--windows-console-mode=disable",
+            "--output-filename=NeonFtool.exe"
+          ) + $commonArgs + @("src\neonftool\app.py")
+          python -m nuitka @guiArgs
 
-      - name: Upload artifact
+          $debugArgs = @(
+            "--windows-console-mode=force",
+            "--output-filename=NeonFtool-debug.exe"
+          ) + $commonArgs + @("src\neonftool\app.py")
+          python -m nuitka @debugArgs
+
+      - name: Verify built executable exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "build\dist\NeonFtool.exe")) {
+            throw "Expected build\dist\NeonFtool.exe to exist, but it was not found."
+          }
+          if (!(Test-Path "build\dist\NeonFtool-debug.exe")) {
+            throw "Expected build\dist\NeonFtool-debug.exe to exist, but it was not found."
+          }
+
+      - name: Upload GUI artifact
         uses: actions/upload-artifact@v4
         with:
           name: neonftool-exe
-          path: build/dist/*.exe
+          path: build/dist/NeonFtool.exe
+
+      - name: Upload debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neonftool-debug-exe
+          path: build/dist/NeonFtool-debug.exe
+
+      - name: Publish pre-release from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: main-latest
+          target_commitish: ${{ github.sha }}
+          name: NeonFtool Pre-release (main)
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+          files: |
+            build/dist/NeonFtool.exe
+            build/dist/NeonFtool-debug.exe
+
+      - name: Publish release from tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NeonFtool ${{ github.ref_name }}
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            build/dist/NeonFtool.exe
+            build/dist/NeonFtool-debug.exe
