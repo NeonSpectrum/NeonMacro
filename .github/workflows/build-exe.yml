@@ -133,6 +133,7 @@ jobs:
           name: NeonFtool Pre-release (main)
           prerelease: true
           make_latest: false
+          append_body: false
           generate_release_notes: true
           files: |
             build/dist/NeonFtool.exe
