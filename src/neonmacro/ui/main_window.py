@@ -99,6 +99,10 @@ class MainWindow(ctk.CTk):
         self._checkbox_col_width = 52
 
         self._selected_profile_name: str | None = None
+        self._dragged_row_id: str | None = None
+        self._row_drag_in_progress = False
+        self._table_drag_cursor = "fleur"
+        self._drag_status_text: str | None = None
         self._overlay_has_active_spam = False
         self._last_overlay_visible: bool | None = None
         self._last_overlay_text: tuple[str, ...] = ()
@@ -218,6 +222,9 @@ class MainWindow(ctk.CTk):
 
     def _bind_events(self) -> None:
         self.profile_table.bind("<<TreeviewSelect>>", self._on_table_selected)
+        self.profile_table.bind("<ButtonPress-1>", self._on_table_press, add="+")
+        self.profile_table.bind("<B1-Motion>", self._on_table_drag, add="+")
+        self.profile_table.bind("<ButtonRelease-1>", self._on_table_release, add="+")
         self.profile_table.bind("<Button-1>", self._on_table_click, add="+")
         self.bind("<Configure>", self._on_window_configure, add="+")
         self.protocol("WM_DELETE_WINDOW", self._on_exit)
@@ -639,6 +646,56 @@ class MainWindow(ctk.CTk):
         self._set_selection_buttons_enabled(False)
         self._save_config_debounced()
 
+    def _on_table_press(self, event) -> None:
+        row_id = self.profile_table.identify_row(event.y)
+        col_id = self.profile_table.identify_column(event.x)
+        if not row_id or col_id == "#0":
+            self._dragged_row_id = None
+            self._row_drag_in_progress = False
+            self.profile_table.configure(cursor="")
+            self._drag_status_text = None
+            return
+        self._dragged_row_id = row_id
+        self._row_drag_in_progress = False
+
+    def _on_table_drag(self, event) -> str | None:
+        if self._dragged_row_id is None:
+            return None
+        target_row_id = self.profile_table.identify_row(event.y)
+        if not target_row_id or target_row_id == self._dragged_row_id:
+            return None
+        from_index = self.profile_table.index(self._dragged_row_id)
+        to_index = self.profile_table.index(target_row_id)
+        if from_index == to_index:
+            return None
+        self.profile_table.move(self._dragged_row_id, "", to_index)
+        moved = self._config.profiles.pop(from_index)
+        self._config.profiles.insert(to_index, moved)
+        self.profile_table.selection_set(self._dragged_row_id)
+        self.profile_table.focus(self._dragged_row_id)
+        self._selected_profile_name = moved.name
+        self._drag_status_text = f"Dragging '{moved.name}' to row {to_index + 1}"
+        self.status_var.set(self._drag_status_text)
+        self._row_drag_in_progress = True
+        self.profile_table.configure(cursor=self._table_drag_cursor)
+        return "break"
+
+    def _on_table_release(self, _event) -> str | None:
+        self.profile_table.configure(cursor="")
+        if self._dragged_row_id is None:
+            return None
+        was_dragging = self._row_drag_in_progress
+        self._dragged_row_id = None
+        self._row_drag_in_progress = False
+        self._drag_status_text = None
+        if was_dragging:
+            self._on_table_selected()
+            self._apply_active_profiles_state()
+            self._update_status_text(self._engine.status)
+            self._save_config_debounced()
+            return "break"
+        return None
+
     def _on_profile_selected_by_hotkey(self, profile_name: str) -> None:
         self.after(0, lambda: self._toggle_profile_by_hotkey(profile_name))
 
@@ -692,7 +749,10 @@ class MainWindow(ctk.CTk):
             active_profile_names=status.active_profile_names or [],
         )
         self._overlay_has_active_spam = status_view.overlay_has_active_spam
-        self.status_var.set(status_view.text)
+        if self._drag_status_text:
+            self.status_var.set(self._drag_status_text)
+        else:
+            self.status_var.set(status_view.text)
         self._sync_overlay_visibility()
 
     def _refresh_profile_list(self, selected_name: str | None = None) -> None:
