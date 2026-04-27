@@ -112,7 +112,7 @@ class SpamEngine:
             due_profiles: list[SpamProfile] = []
             for profile in profiles:
                 last_run = self._last_run_at.get(profile.name, 0.0)
-                interval_seconds = max(0.05, profile.interval_ms / 1000.0)
+                interval_seconds = max(0.01, profile.interval_ms / 1000.0)
                 due = now - last_run >= interval_seconds
                 if due:
                     due_profiles.append(profile)
