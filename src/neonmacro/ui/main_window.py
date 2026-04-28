@@ -115,6 +115,7 @@ class MainWindow(ctk.CTk):
         self._overlay_has_active_spam = False
         self._last_overlay_visible: bool | None = None
         self._last_overlay_text: tuple[str, ...] = ()
+        self._last_spam_foreground_hwnd: int | None = None
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
         self._build_layout()
@@ -498,6 +499,7 @@ class MainWindow(ctk.CTk):
 
     def _sync_overlay_visibility(self) -> None:
         sync_started = time.perf_counter()
+        self._enforce_foreground_change_stop()
         if self._config.options.force_overlay_visible:
             self._set_overlay_state(visible=True, names=["FORCED OVERLAY"])
             return
@@ -523,6 +525,33 @@ class MainWindow(ctk.CTk):
         elapsed_ms = (time.perf_counter() - sync_started) * 1000
         if elapsed_ms >= 5:
             logger.debug("overlay_sync_ms=%.2f visible=%s matches=%d", elapsed_ms, should_show, len(matching_profiles))
+
+    def _enforce_foreground_change_stop(self) -> None:
+        if self._config.options.allow_background:
+            self._last_spam_foreground_hwnd = None
+            return
+        has_active_profiles = any(profile.is_active for profile in self._config.profiles)
+        if not has_active_profiles:
+            self._last_spam_foreground_hwnd = None
+            return
+        foreground = get_foreground_context()
+        if foreground is None:
+            logger.info("Stopping active spam: foreground window unavailable while background is disabled")
+            self._stop_all_active_profiles()
+            self._last_spam_foreground_hwnd = None
+            return
+        if self._last_spam_foreground_hwnd is None:
+            self._last_spam_foreground_hwnd = foreground.hwnd
+            return
+        if foreground.hwnd == self._last_spam_foreground_hwnd:
+            return
+        logger.info(
+            "Stopping active spam: foreground window changed from hwnd=%s to hwnd=%s while background is disabled",
+            self._last_spam_foreground_hwnd,
+            foreground.hwnd,
+        )
+        self._stop_all_active_profiles()
+        self._last_spam_foreground_hwnd = None
 
     def _set_overlay_state(self, visible: bool, names: list[str]) -> None:
         name_tuple = tuple(names)
