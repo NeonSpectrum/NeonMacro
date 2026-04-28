@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .defaults import DEFAULT_AUTO_STOP_KEYS
+from .defaults import DEFAULT_AUTO_PAUSE_STOP_KEYS
 
 
 @dataclass
@@ -13,9 +13,10 @@ class AppOptions:
     force_overlay_visible: bool = False
     allow_parallel: bool = True
     allow_background: bool = True
-    auto_stop_on_key_press: bool = False
+    auto_pause_stop_on_key_press: bool = False
+    auto_pause_stop_duration_ms: int = 120
+    auto_pause_stop_keys: list[str] = field(default_factory=lambda: list(DEFAULT_AUTO_PAUSE_STOP_KEYS))
     restrict_profile_hotkeys_to_allowed_apps: bool = False
-    auto_stop_keys: list[str] = field(default_factory=lambda: list(DEFAULT_AUTO_STOP_KEYS))
     allowed_applications: list[str] = field(default_factory=list)
     settings_toggle_hotkey: str = "{F10}"
 
@@ -26,19 +27,26 @@ class AppOptions:
     def from_dict(cls, data: dict[str, Any]) -> "AppOptions":
         apps = data.get("allowed_applications", [])
         normalized_apps = [str(item) for item in apps if str(item).strip()]
-        stop_keys = data.get("auto_stop_keys", DEFAULT_AUTO_STOP_KEYS)
-        normalized_stop_keys = [str(item).strip() for item in stop_keys if str(item).strip()]
+        merged_enabled = bool(data.get("auto_pause_stop_on_key_press", False))
+        merged_duration_raw = data.get("auto_pause_stop_duration_ms", 120)
+        merged_keys_raw = data.get("auto_pause_stop_keys", DEFAULT_AUTO_PAUSE_STOP_KEYS)
+        normalized_merged_keys = [str(item).strip() for item in merged_keys_raw if str(item).strip()]
+        try:
+            merged_duration_ms = int(merged_duration_raw)
+        except (TypeError, ValueError):
+            merged_duration_ms = 120
         return cls(
             enable_overlay=bool(data.get("enable_overlay", True)),
             lock_overlay=bool(data.get("lock_overlay", False)),
             force_overlay_visible=bool(data.get("force_overlay_visible", False)),
             allow_parallel=bool(data.get("allow_parallel", True)),
             allow_background=bool(data.get("allow_background", True)),
-            auto_stop_on_key_press=bool(data.get("auto_stop_on_key_press", False)),
+            auto_pause_stop_on_key_press=bool(merged_enabled),
+            auto_pause_stop_duration_ms=max(-1, merged_duration_ms),
+            auto_pause_stop_keys=normalized_merged_keys,
             restrict_profile_hotkeys_to_allowed_apps=bool(
                 data.get("restrict_profile_hotkeys_to_allowed_apps", False)
             ),
-            auto_stop_keys=normalized_stop_keys,
             allowed_applications=normalized_apps,
             settings_toggle_hotkey=str(data.get("settings_toggle_hotkey", "{F10}")),
         )

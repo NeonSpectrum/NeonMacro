@@ -132,16 +132,21 @@ class HotkeyManager:
         self,
         on_profile_hotkey: Callable[[str], None],
         on_auto_stop_hotkey: Callable[[], None],
+        on_priority_pause_hotkey: Callable[[], None],
         on_settings_toggle_hotkey: Callable[[], None],
     ) -> None:
         self._on_profile_hotkey = on_profile_hotkey
         self._on_auto_stop_hotkey = on_auto_stop_hotkey
+        self._on_priority_pause_hotkey = on_priority_pause_hotkey
         self._on_settings_toggle_hotkey = on_settings_toggle_hotkey
         self._registered_ids: list[int] = []
         self._registered_auto_stop_ids: list[int] = []
+        self._registered_priority_pause_ids: list[int] = []
         self._registered_settings_hotkey_id: int | None = None
         self._registered_mouse_handlers: list[Callable] = []
         self._registered_auto_stop_mouse_handlers: list[Callable] = []
+        self._registered_priority_pause_mouse_handlers: list[Callable] = []
+        self._registered_priority_pause_keyboard_handlers: list[Callable] = []
         self._probe_hotkey_id = 0xA000
 
     def apply_profile_hotkeys(self, profiles: list[SpamProfile]) -> None:
@@ -212,6 +217,34 @@ class HotkeyManager:
                     suppress=False,
                 )
                 self._registered_auto_stop_ids.append(hotkey_id)
+            seen.add(normalized)
+
+    def apply_priority_pause_hotkeys(self, enabled: bool, pause_keys: list[str]) -> None:
+        self._clear_priority_pause_hotkeys()
+        if not enabled:
+            return
+        seen: set[str] = set()
+        for pause_key in pause_keys:
+            normalized = self._normalize_hotkey(pause_key)
+            if not normalized or normalized in RESERVED_HOTKEYS:
+                continue
+            if normalized in seen:
+                continue
+            parsed = _parse_hotkey(normalized)
+            if parsed is None:
+                continue
+            if parsed.includes_mouse:
+                self._register_mouse_hotkey(
+                    parsed=parsed,
+                    callback=self._on_priority_pause_hotkey,
+                    into=self._registered_priority_pause_mouse_handlers,
+                )
+            else:
+                self._register_keyboard_hook_hotkey(
+                    parsed=parsed,
+                    callback=self._on_priority_pause_hotkey,
+                    into=self._registered_priority_pause_keyboard_handlers,
+                )
             seen.add(normalized)
 
     def can_bind_hotkey(self, hotkey: str) -> bool:
@@ -311,9 +344,35 @@ class HotkeyManager:
         mouse.hook(_handler)
         into.append(_handler)
 
+    def _register_keyboard_hook_hotkey(
+        self,
+        *,
+        parsed: ParsedHotkey,
+        callback: Callable[[], None],
+        into: list[Callable],
+    ) -> None:
+        expected_key = parsed.key_token.lower() if len(parsed.key_token) > 1 else parsed.key_token.lower()
+        modifiers = [KEYBOARD_MODIFIER_ALIASES[item] for item in parsed.modifiers]
+
+        def _handler(event) -> None:
+            if not isinstance(event, keyboard.KeyboardEvent):
+                return
+            if event.event_type != "down":
+                return
+            event_name = (event.name or "").lower()
+            if event_name != expected_key:
+                return
+            if not all(keyboard.is_pressed(modifier_key) for modifier_key in modifiers):
+                return
+            callback()
+
+        keyboard.hook(_handler)
+        into.append(_handler)
+
     def shutdown(self) -> None:
         self._clear_profile_hotkeys()
         self._clear_auto_stop_hotkeys()
+        self._clear_priority_pause_hotkeys()
         self._clear_settings_toggle_hotkey()
 
     def _clear_profile_hotkeys(self) -> None:
@@ -337,6 +396,20 @@ class HotkeyManager:
         for handler in self._registered_auto_stop_mouse_handlers:
             mouse.unhook(handler)
         self._registered_auto_stop_mouse_handlers.clear()
+
+    def _clear_priority_pause_hotkeys(self) -> None:
+        for hotkey_id in self._registered_priority_pause_ids:
+            try:
+                keyboard.remove_hotkey(hotkey_id)
+            except KeyError:
+                continue
+        self._registered_priority_pause_ids.clear()
+        for handler in self._registered_priority_pause_keyboard_handlers:
+            keyboard.unhook(handler)
+        self._registered_priority_pause_keyboard_handlers.clear()
+        for handler in self._registered_priority_pause_mouse_handlers:
+            mouse.unhook(handler)
+        self._registered_priority_pause_mouse_handlers.clear()
 
     def _clear_settings_toggle_hotkey(self) -> None:
         if self._registered_settings_hotkey_id is not None:

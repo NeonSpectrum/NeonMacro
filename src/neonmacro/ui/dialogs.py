@@ -5,6 +5,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 from ..models import AppOptions
+from .widget_state import set_checkbox_enabled, set_entry_enabled
 from .window_icon import apply_window_icon
 
 
@@ -28,11 +29,16 @@ class OptionsDialog(ctk.CTkToplevel):
         self.force_overlay_visible_var = ctk.BooleanVar(value=options.force_overlay_visible)
         self.allow_parallel_var = ctk.BooleanVar(value=options.allow_parallel)
         self.allow_background_var = ctk.BooleanVar(value=options.allow_background)
-        self.auto_stop_on_key_press_var = ctk.BooleanVar(value=options.auto_stop_on_key_press)
+        self.auto_pause_stop_on_key_press_var = ctk.BooleanVar(
+            value=options.auto_pause_stop_on_key_press
+        )
+        self.auto_pause_stop_duration_ms_var = ctk.StringVar(
+            value=str(options.auto_pause_stop_duration_ms)
+        )
+        self.auto_pause_stop_keys_var = ctk.StringVar(value=";".join(options.auto_pause_stop_keys))
         self.restrict_profile_hotkeys_var = ctk.BooleanVar(
             value=options.restrict_profile_hotkeys_to_allowed_apps
         )
-        self.auto_stop_keys_var = ctk.StringVar(value=";".join(options.auto_stop_keys))
         self.allowed_apps_var = ctk.StringVar(value=";".join(options.allowed_applications))
         self.settings_toggle_hotkey_var = ctk.StringVar(value=options.settings_toggle_hotkey)
         self.overlay_x_var = ctk.StringVar(value=str(overlay_x))
@@ -45,7 +51,12 @@ class OptionsDialog(ctk.CTkToplevel):
         overlay_group = ctk.CTkFrame(body)
         overlay_group.pack(fill="x", pady=(0, 10))
         ctk.CTkLabel(overlay_group, text="Overlay").pack(anchor="w", padx=10, pady=(8, 2))
-        ctk.CTkCheckBox(overlay_group, text="Enable overlay", variable=self.enable_overlay_var).pack(
+        self.enable_overlay_checkbox = ctk.CTkCheckBox(
+            overlay_group,
+            text="Enable overlay",
+            variable=self.enable_overlay_var,
+        )
+        self.enable_overlay_checkbox.pack(
             anchor="w", padx=10, pady=2
         )
         self.lock_overlay_checkbox = ctk.CTkCheckBox(
@@ -56,34 +67,40 @@ class OptionsDialog(ctk.CTkToplevel):
         self.lock_overlay_checkbox.pack(
             anchor="w", padx=10, pady=(2, 6)
         )
-        ctk.CTkCheckBox(
+        self.force_overlay_visible_checkbox = ctk.CTkCheckBox(
             overlay_group,
             text="Force overlay visible",
             variable=self.force_overlay_visible_var,
-        ).pack(anchor="w", padx=10, pady=(0, 6))
-        ctk.CTkLabel(overlay_group, text="Coordinates").pack(anchor="w", padx=10, pady=(0, 2))
+        )
+        self.force_overlay_visible_checkbox.pack(anchor="w", padx=10, pady=(0, 6))
+        self.overlay_coords_label = ctk.CTkLabel(overlay_group, text="Coordinates")
+        self.overlay_coords_label.pack(anchor="w", padx=10, pady=(0, 2))
         coords_row = ctk.CTkFrame(overlay_group, fg_color="transparent")
         coords_row.pack(fill="x", padx=10, pady=(0, 10))
         ctk.CTkLabel(coords_row, text="X").pack(side="left")
-        ctk.CTkEntry(coords_row, textvariable=self.overlay_x_var, width=80).pack(
+        self.overlay_x_entry = ctk.CTkEntry(coords_row, textvariable=self.overlay_x_var, width=80)
+        self.overlay_x_entry.pack(
             side="left", padx=(6, 14)
         )
         ctk.CTkLabel(coords_row, text="Y").pack(side="left")
-        ctk.CTkEntry(coords_row, textvariable=self.overlay_y_var, width=80).pack(
+        self.overlay_y_entry = ctk.CTkEntry(coords_row, textvariable=self.overlay_y_var, width=80)
+        self.overlay_y_entry.pack(
             side="left", padx=(6, 0)
         )
-        ctk.CTkButton(
+        self.overlay_save_button = ctk.CTkButton(
             coords_row,
             text="Save",
             width=80,
             command=self._save_overlay_position,
-        ).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(
+        )
+        self.overlay_save_button.pack(side="right", padx=(8, 0))
+        self.overlay_reset_button = ctk.CTkButton(
             coords_row,
             text="Reset",
             width=80,
             command=self._reset_overlay_position,
-        ).pack(side="right", padx=(8, 0))
+        )
+        self.overlay_reset_button.pack(side="right", padx=(8, 0))
 
         spam_group = ctk.CTkFrame(body)
         spam_group.pack(fill="x", pady=(0, 10))
@@ -96,22 +113,42 @@ class OptionsDialog(ctk.CTkToplevel):
             text="Allow background (spam key works when target app is not focused)",
             variable=self.allow_background_var,
         ).pack(anchor="w", padx=10, pady=2)
-        ctk.CTkCheckBox(
+        self.auto_pause_stop_checkbox = ctk.CTkCheckBox(
             spam_group,
-            text="Enable auto stop when key press",
-            variable=self.auto_stop_on_key_press_var,
-        ).pack(anchor="w", padx=10, pady=2)
+            text="Enable auto pause/stop when key press",
+            variable=self.auto_pause_stop_on_key_press_var,
+        )
+        self.auto_pause_stop_checkbox.pack(anchor="w", padx=10, pady=2)
+        pause_row = ctk.CTkFrame(spam_group, fg_color="transparent")
+        pause_row.pack(fill="x", padx=10, pady=(0, 4))
+        self.auto_pause_stop_duration_label = ctk.CTkLabel(
+            pause_row, text="Pause duration (ms, -1 = full stop)"
+        )
+        self.auto_pause_stop_duration_label.pack(side="left")
+        self.auto_pause_stop_duration_entry = ctk.CTkEntry(
+            pause_row,
+            textvariable=self.auto_pause_stop_duration_ms_var,
+            width=100,
+            placeholder_text="120",
+        )
+        self.auto_pause_stop_duration_entry.pack(side="left", padx=(8, 0))
+        self.auto_pause_stop_keys_label = ctk.CTkLabel(
+            spam_group, text="Auto pause/stop keys (semicolon separated)"
+        )
+        self.auto_pause_stop_keys_label.pack(
+            anchor="w", padx=10, pady=(0, 0)
+        )
+        self.auto_pause_stop_keys_entry = ctk.CTkEntry(
+            spam_group, textvariable=self.auto_pause_stop_keys_var, width=320
+        )
+        self.auto_pause_stop_keys_entry.pack(
+            fill="x", padx=10, pady=(2, 8)
+        )
         ctk.CTkCheckBox(
             spam_group,
             text="Profile hotkeys only work for allowed applications",
             variable=self.restrict_profile_hotkeys_var,
         ).pack(anchor="w", padx=10, pady=2)
-        ctk.CTkLabel(spam_group, text="Auto stop keys (semicolon separated)").pack(
-            anchor="w", padx=10, pady=(4, 0)
-        )
-        ctk.CTkEntry(spam_group, textvariable=self.auto_stop_keys_var, width=320).pack(
-            fill="x", padx=10, pady=(2, 8)
-        )
         ctk.CTkLabel(spam_group, text="Application list (semicolon separated)").pack(
             anchor="w", padx=10
         )
@@ -127,8 +164,14 @@ class OptionsDialog(ctk.CTkToplevel):
         ).pack(fill="x", padx=10, pady=(2, 10))
 
         self._register_autosave_callbacks()
+        self.enable_overlay_var.trace_add("write", self._on_enable_overlay_changed)
         self.force_overlay_visible_var.trace_add("write", self._on_force_overlay_visible_changed)
+        self.auto_pause_stop_on_key_press_var.trace_add(
+            "write", self._on_auto_pause_stop_toggle_changed
+        )
+        self._apply_overlay_group_state()
         self._apply_force_overlay_visible_state()
+        self._apply_auto_pause_stop_state()
         self._apply_window_icon(parent)
         self.bind("<Destroy>", self._on_destroy, add="+")
 
@@ -161,16 +204,20 @@ class OptionsDialog(ctk.CTkToplevel):
 
     def _build_options(self) -> AppOptions:
         apps = [item.strip() for item in self.allowed_apps_var.get().split(";") if item.strip()]
-        stop_keys = [item.strip() for item in self.auto_stop_keys_var.get().split(";") if item.strip()]
+        pause_stop_keys = [
+            item.strip() for item in self.auto_pause_stop_keys_var.get().split(";") if item.strip()
+        ]
+        pause_stop_ms = self._parse_pause_stop_ms()
         return AppOptions(
             enable_overlay=self.enable_overlay_var.get(),
             lock_overlay=self.lock_overlay_var.get(),
             force_overlay_visible=self.force_overlay_visible_var.get(),
             allow_parallel=self.allow_parallel_var.get(),
             allow_background=self.allow_background_var.get(),
-            auto_stop_on_key_press=self.auto_stop_on_key_press_var.get(),
+            auto_pause_stop_on_key_press=self.auto_pause_stop_on_key_press_var.get(),
+            auto_pause_stop_duration_ms=pause_stop_ms,
+            auto_pause_stop_keys=pause_stop_keys,
             restrict_profile_hotkeys_to_allowed_apps=self.restrict_profile_hotkeys_var.get(),
-            auto_stop_keys=stop_keys,
             allowed_applications=apps,
             settings_toggle_hotkey=self.settings_toggle_hotkey_var.get().strip(),
         )
@@ -183,6 +230,14 @@ class OptionsDialog(ctk.CTkToplevel):
             return None
         return (overlay_x, overlay_y)
 
+    def _parse_pause_stop_ms(self) -> int:
+        raw = self.auto_pause_stop_duration_ms_var.get().strip()
+        try:
+            parsed = int(raw)
+        except ValueError:
+            return 120
+        return max(-1, parsed)
+
     def _register_autosave_callbacks(self) -> None:
         watched_vars = (
             self.enable_overlay_var,
@@ -190,9 +245,10 @@ class OptionsDialog(ctk.CTkToplevel):
             self.force_overlay_visible_var,
             self.allow_parallel_var,
             self.allow_background_var,
-            self.auto_stop_on_key_press_var,
+            self.auto_pause_stop_on_key_press_var,
+            self.auto_pause_stop_duration_ms_var,
+            self.auto_pause_stop_keys_var,
             self.restrict_profile_hotkeys_var,
-            self.auto_stop_keys_var,
             self.allowed_apps_var,
             self.settings_toggle_hotkey_var,
         )
@@ -237,8 +293,46 @@ class OptionsDialog(ctk.CTkToplevel):
         self._apply_force_overlay_visible_state()
 
     def _apply_force_overlay_visible_state(self) -> None:
-        if self.force_overlay_visible_var.get():
-            self.lock_overlay_checkbox.configure(state="disabled")
+        if not self.enable_overlay_var.get():
+            set_checkbox_enabled(self.lock_overlay_checkbox, enabled=False)
             return
-        self.lock_overlay_checkbox.configure(state="normal")
+        if self.force_overlay_visible_var.get():
+            set_checkbox_enabled(self.lock_overlay_checkbox, enabled=False)
+            return
+        set_checkbox_enabled(self.lock_overlay_checkbox, enabled=True)
+
+    def _on_enable_overlay_changed(self, *_args) -> None:
+        self._apply_overlay_group_state()
+
+    def _apply_overlay_group_state(self) -> None:
+        overlay_enabled = self.enable_overlay_var.get()
+        set_checkbox_enabled(self.force_overlay_visible_checkbox, enabled=overlay_enabled)
+        set_entry_enabled(self.overlay_x_entry, enabled=overlay_enabled)
+        set_entry_enabled(self.overlay_y_entry, enabled=overlay_enabled)
+        button_state = "normal" if overlay_enabled else "disabled"
+        self.overlay_save_button.configure(state=button_state)
+        self.overlay_reset_button.configure(state=button_state)
+        self._apply_force_overlay_visible_state()
+
+    def _on_auto_pause_stop_toggle_changed(self, *_args) -> None:
+        self._apply_auto_pause_stop_state()
+
+    def _apply_auto_pause_stop_state(self) -> None:
+        enabled = self.auto_pause_stop_on_key_press_var.get()
+        set_entry_enabled(self.auto_pause_stop_duration_entry, enabled=enabled)
+        self.auto_pause_stop_duration_label.configure(
+            text_color=self._section_text_color(enabled=enabled)
+        )
+        self.auto_pause_stop_keys_label.configure(
+            text_color=self._section_text_color(enabled=enabled)
+        )
+        set_entry_enabled(self.auto_pause_stop_keys_entry, enabled=enabled)
+
+    @staticmethod
+    def _section_text_color(enabled: bool) -> str:
+        label_theme = ctk.ThemeManager.theme.get("CTkLabel", {})
+        text_color = label_theme.get("text_color", ("#DCE4EE", "#DCE4EE"))
+        if enabled:
+            return text_color
+        return label_theme.get("text_color_disabled", "#7A7A7A")
 

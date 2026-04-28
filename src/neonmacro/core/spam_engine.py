@@ -36,6 +36,7 @@ class SpamEngine:
         self._active_profiles: list[SpamProfile] = []
         self._last_run_at: dict[str, float] = {}
         self._last_debug_emit_at: dict[str, float] = {}
+        self._paused_until: float = 0.0
 
     @property
     def status(self) -> EngineStatus:
@@ -75,6 +76,13 @@ class SpamEngine:
         self._emit_status()
         return value
 
+    def pause_temporarily(self, duration_seconds: float) -> None:
+        duration = max(0.0, duration_seconds)
+        pause_until = time.monotonic() + duration
+        with self._lock:
+            if pause_until > self._paused_until:
+                self._paused_until = pause_until
+
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
@@ -102,11 +110,15 @@ class SpamEngine:
             with self._lock:
                 enabled = self._state.enabled
                 profiles = list(self._active_profiles)
+                paused_until = self._paused_until
             if not enabled or not profiles:
                 self._stop_event.wait(0.05)
                 continue
-
             now = time.monotonic()
+            if now < paused_until:
+                self._stop_event.wait(min(0.05, paused_until - now))
+                continue
+
             cycle_started = time.perf_counter()
             sleep_seconds = 0.05
             due_profiles: list[SpamProfile] = []

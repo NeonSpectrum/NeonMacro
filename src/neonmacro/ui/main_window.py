@@ -65,7 +65,8 @@ class MainWindow(ctk.CTk):
         )
         self._hotkeys = HotkeyManager(
             on_profile_hotkey=self._on_profile_selected_by_hotkey,
-            on_auto_stop_hotkey=self._on_auto_stop_hotkey,
+            on_auto_stop_hotkey=self._on_auto_pause_stop_hotkey,
+            on_priority_pause_hotkey=self._on_auto_pause_stop_hotkey,
             on_settings_toggle_hotkey=self._on_settings_toggle_hotkey,
         )
         self._overlay = OverlayWindow(
@@ -116,6 +117,10 @@ class MainWindow(ctk.CTk):
         self._last_overlay_visible: bool | None = None
         self._last_overlay_text: tuple[str, ...] = ()
         self._last_spam_foreground_hwnd: int | None = None
+        self._priority_input_resume_job: str | None = None
+        self._priority_pause_status_job: str | None = None
+        self._priority_paused_profile_names: set[str] = set()
+        self._priority_pause_deadline: float = 0.0
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
         self._build_layout()
@@ -456,8 +461,8 @@ class MainWindow(ctk.CTk):
         self._enforce_parallel_profile_policy()
         self._hotkeys.apply_profile_hotkeys(self._config.profiles)
         self._hotkeys.apply_auto_stop_hotkeys(
-            enabled=self._config.options.auto_stop_on_key_press,
-            stop_keys=self._config.options.auto_stop_keys,
+            enabled=False,
+            stop_keys=[],
         )
         settings_hotkey = self._hotkeys.normalize_hotkey(
             self._config.options.settings_toggle_hotkey
@@ -479,7 +484,79 @@ class MainWindow(ctk.CTk):
         self._overlay.set_lock(
             self._config.options.lock_overlay and not self._config.options.force_overlay_visible
         )
+        self._apply_priority_input_pause_option()
         self._sync_overlay_visibility()
+
+    def _apply_priority_input_pause_option(self) -> None:
+        self._hotkeys.apply_priority_pause_hotkeys(
+            enabled=self._config.options.auto_pause_stop_on_key_press,
+            pause_keys=self._config.options.auto_pause_stop_keys,
+        )
+
+    def _on_auto_pause_stop_hotkey(self) -> None:
+        logger.info("Auto pause/stop key detected")
+        self.after(0, self._handle_auto_pause_stop_input_activity)
+
+    def _handle_auto_pause_stop_input_activity(self) -> None:
+        if not self._config.options.auto_pause_stop_on_key_press:
+            logger.debug("Auto pause/stop event ignored: option disabled")
+            return
+        if self._config.options.auto_pause_stop_duration_ms == -1:
+            self._stop_all_active_profiles_if_allowed_app()
+            return
+        active_names = {profile.name for profile in self._config.profiles if profile.is_active}
+        if not active_names and not self._priority_paused_profile_names:
+            logger.debug("Auto pause event ignored: no active profiles")
+            return
+        if active_names:
+            self._priority_paused_profile_names = active_names
+        pause_seconds = self._priority_input_pause_seconds()
+        pause_ms = max(0, int(self._config.options.auto_pause_stop_duration_ms))
+        self._priority_pause_deadline = time.monotonic() + pause_seconds
+        self._engine.pause_temporarily(pause_seconds)
+        for index, profile in enumerate(self._config.profiles):
+            if profile.name in self._priority_paused_profile_names:
+                profile.is_active = False
+                self._update_table_row(index)
+        self._apply_active_profiles_state()
+        if self._priority_input_resume_job is not None:
+            self.after_cancel(self._priority_input_resume_job)
+        if self._priority_pause_status_job is not None:
+            self.after_cancel(self._priority_pause_status_job)
+            self._priority_pause_status_job = None
+        self._update_priority_pause_status()
+        self._sync_overlay_visibility()
+        self._priority_input_resume_job = self.after(pause_ms, self._resume_from_priority_input_pause)
+        self._priority_pause_status_job = self.after(100, self._update_priority_pause_status)
+        logger.info("Auto pause active for %d ms", pause_ms)
+
+    def _resume_from_priority_input_pause(self) -> None:
+        self._priority_input_resume_job = None
+        if self._priority_pause_status_job is not None:
+            self.after_cancel(self._priority_pause_status_job)
+            self._priority_pause_status_job = None
+        for index, profile in enumerate(self._config.profiles):
+            if profile.name in self._priority_paused_profile_names:
+                profile.is_active = True
+                self._update_table_row(index)
+        self._priority_paused_profile_names.clear()
+        self._priority_pause_deadline = 0.0
+        self._apply_active_profiles_state()
+        logger.info("Prioritize pause ended")
+
+    def _update_priority_pause_status(self) -> None:
+        if not self._priority_paused_profile_names:
+            return
+        remaining_seconds = max(0.0, self._priority_pause_deadline - time.monotonic())
+        self.status_var.set(f"Auto pause: {remaining_seconds:.1f}s remaining")
+        if self._priority_input_resume_job is None or remaining_seconds <= 0:
+            self._priority_pause_status_job = None
+            return
+        self._priority_pause_status_job = self.after(100, self._update_priority_pause_status)
+
+    def _priority_input_pause_seconds(self) -> float:
+        pause_ms = max(0, int(self._config.options.auto_pause_stop_duration_ms))
+        return pause_ms / 1000.0
 
     def _enforce_parallel_profile_policy(self) -> None:
         enforce_parallel_profile_policy(
@@ -808,6 +885,11 @@ class MainWindow(ctk.CTk):
         messagebox.showerror("Spam key validation", message)
 
     def _update_status_text(self, status: EngineStatus) -> None:
+        if self._priority_paused_profile_names:
+            self._update_priority_pause_status()
+            self._overlay_has_active_spam = False
+            self._sync_overlay_visibility()
+            return
         status_view = build_status_view(
             enabled=status.enabled,
             active_profile_names=status.active_profile_names or [],
@@ -927,9 +1009,6 @@ class MainWindow(ctk.CTk):
         if persist:
             self._save_config_debounced()
 
-    def _on_auto_stop_hotkey(self) -> None:
-        self.after(0, self._stop_all_active_profiles_if_allowed_app)
-
     def _on_settings_toggle_hotkey(self) -> None:
         self.after(0, self._toggle_settings_overlay_on_allowed_app)
 
@@ -950,6 +1029,14 @@ class MainWindow(ctk.CTk):
                 changed = True
         if not changed:
             return
+        if self._priority_input_resume_job is not None:
+            self.after_cancel(self._priority_input_resume_job)
+            self._priority_input_resume_job = None
+        if self._priority_pause_status_job is not None:
+            self.after_cancel(self._priority_pause_status_job)
+            self._priority_pause_status_job = None
+        self._priority_paused_profile_names.clear()
+        self._priority_pause_deadline = 0.0
         self._apply_active_profiles_state()
         self._save_config_debounced()
 
@@ -979,6 +1066,12 @@ class MainWindow(ctk.CTk):
         if self._config_save_job is not None:
             self.after_cancel(self._config_save_job)
             self._config_save_job = None
+        if self._priority_input_resume_job is not None:
+            self.after_cancel(self._priority_input_resume_job)
+            self._priority_input_resume_job = None
+        if self._priority_pause_status_job is not None:
+            self.after_cancel(self._priority_pause_status_job)
+            self._priority_pause_status_job = None
         if self._pending_overlay_center is not None:
             center_x, center_y = self._pending_overlay_center
             self._config.overlay.x = center_x
