@@ -24,8 +24,22 @@ def _read_log_level_from_dotenv() -> str | None:
 
 def configure_logging(log_file: Path) -> None:
     is_production_runtime = getattr(sys, "frozen", False)
+    root = logging.getLogger()
+
+    # Force-disable logging for packaged/frozen runtime.
+    if is_production_runtime:
+        for handler in list(root.handlers):
+            if isinstance(handler, RotatingFileHandler):
+                root.removeHandler(handler)
+                try:
+                    handler.close()
+                except Exception:
+                    pass
+        logging.disable(logging.CRITICAL)
+        return
+
     raw_level = os.getenv("LOG_LEVEL") or _read_log_level_from_dotenv()
-    normalized_level = (raw_level or ("OFF" if is_production_runtime else "DEBUG")).strip().upper()
+    normalized_level = (raw_level or "DEBUG").strip().upper()
 
     if normalized_level in {"OFF", "NONE", "0"}:
         logging.disable(logging.CRITICAL)
@@ -42,7 +56,6 @@ def configure_logging(log_file: Path) -> None:
     level = level_map.get(normalized_level, logging.DEBUG)
 
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    root = logging.getLogger()
     root.setLevel(level)
 
     for handler in list(root.handlers):
