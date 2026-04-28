@@ -480,7 +480,6 @@ class MainWindow(ctk.CTk):
         )
         should_show = (
             self._config.options.enable_overlay
-            and self.state() != "iconic"
             and bool(matching_profiles)
             and allowed_app_focused
         )
