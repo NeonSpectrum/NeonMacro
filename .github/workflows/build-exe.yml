@@ -63,6 +63,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path "build" | Out-Null
           $launcherPath = "build\nuitka_entry.py"
           @(
+            "import os",
+            "os.environ['LOG_LEVEL'] = 'NONE'",
+            "",
             "from neonmacro.app import main",
             "",
             "if __name__ == '__main__':",

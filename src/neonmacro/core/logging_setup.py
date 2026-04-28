@@ -7,6 +7,16 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
+def _is_packaged_runtime() -> bool:
+    # PyInstaller/py2exe-style flag.
+    if getattr(sys, "frozen", False):
+        return True
+    # Nuitka provides __compiled__ in compiled modules.
+    if "__compiled__" in globals():
+        return True
+    return False
+
+
 def _read_log_level_from_dotenv() -> str | None:
     env_path = Path.cwd() / ".env"
     if not env_path.exists():
@@ -23,7 +33,7 @@ def _read_log_level_from_dotenv() -> str | None:
 
 
 def configure_logging(log_file: Path) -> None:
-    is_production_runtime = getattr(sys, "frozen", False)
+    is_production_runtime = _is_packaged_runtime()
     root = logging.getLogger()
 
     # Force-disable logging for packaged/frozen runtime.
