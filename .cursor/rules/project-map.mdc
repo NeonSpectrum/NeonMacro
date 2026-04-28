@@ -10,6 +10,7 @@ alwaysApply: true
 - Main feature hub: src/neonmacro/ui/main_window.py (profile CRUD, hotkeys, engine state, options, overlay visibility logic).
 - Core runtime pieces: src/neonmacro/core/spam_engine.py (send loop), src/neonmacro/core/hotkeys.py (global/profile hotkeys), src/neonmacro/core/config.py (JSON load/save).
 - Overlay + targeting: src/neonmacro/core/overlay.py, src/neonmacro/ui/overlay_controller.py, src/neonmacro/targeting/window_targeting.py.
+- Tray integration: src/neonmacro/ui/system_tray.py (system tray icon/menu), src/neonmacro/ui/main_window.py (minimize-to-tray and restore wiring).
 
 # Maintenance Rule
 

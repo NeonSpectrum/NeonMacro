@@ -29,6 +29,7 @@ from .overlay_controller import (
     get_foreground_context,
     is_allowed_application_focused,
 )
+from .system_tray import SystemTrayController
 from .table_ui_manager import TableUiManager
 from .window_icon import apply_window_icon
 
@@ -41,6 +42,8 @@ class MainWindow(ctk.CTk):
         self.title("NeonMacro")
         self._window_icon_ico_path: str | None = None
         self._apply_window_icon()
+        self._is_exiting = False
+        self._is_minimized_to_tray = False
         self._default_width = 600
         self._default_height = 700
         self._minimum_width = 500
@@ -72,6 +75,12 @@ class MainWindow(ctk.CTk):
             lock_overlay=self._config.options.lock_overlay,
             on_position_changed=self._on_overlay_position_changed,
             on_drag_state_changed=self._on_overlay_drag_state_changed,
+        )
+        self._tray = SystemTrayController(
+            tooltip="NeonMacro",
+            icon_path=self._window_icon_ico_path,
+            on_open=lambda: self.after(0, self._restore_from_tray),
+            on_exit=lambda: self.after(0, self._on_exit),
         )
         self._overlay_sync_job: str | None = None
         self._theme_sync_job: str | None = None
@@ -227,12 +236,37 @@ class MainWindow(ctk.CTk):
         self.profile_table.bind("<ButtonRelease-1>", self._on_table_release, add="+")
         self.profile_table.bind("<Button-1>", self._on_table_click, add="+")
         self.bind("<Configure>", self._on_window_configure, add="+")
+        self.bind("<Unmap>", self._on_window_unmap, add="+")
         self.protocol("WM_DELETE_WINDOW", self._on_exit)
 
     def _on_window_configure(self, event: tk.Event) -> None:
         if event.widget is not self:
             return
         self._save_config_debounced(delay_ms=300)
+
+    def _on_window_unmap(self, event: tk.Event) -> None:
+        if event.widget is not self or self._is_exiting:
+            return
+        if self.state() != "iconic":
+            return
+        self.after(0, self._minimize_to_tray)
+
+    def _minimize_to_tray(self) -> None:
+        if self._is_exiting or self._is_minimized_to_tray:
+            return
+        self.withdraw()
+        self._overlay.withdraw()
+        self._tray.show()
+        self._is_minimized_to_tray = self._tray.is_visible
+
+    def _restore_from_tray(self) -> None:
+        if self._is_exiting or not self._is_minimized_to_tray:
+            return
+        self._is_minimized_to_tray = False
+        self._tray.hide()
+        self.deiconify()
+        self.lift()
+        self.focus_force()
 
     def _open_options(
         self,
@@ -269,6 +303,8 @@ class MainWindow(ctk.CTk):
             return
         if self.state() == "iconic":
             self.deiconify()
+        if self._is_minimized_to_tray:
+            self._restore_from_tray()
         self.lift()
         self.focus_force()
         self._open_options()
@@ -902,6 +938,9 @@ class MainWindow(ctk.CTk):
         self.delete_button.configure(state=state)
 
     def _on_exit(self) -> None:
+        if self._is_exiting:
+            return
+        self._is_exiting = True
         if self._overlay_sync_job is not None:
             self.after_cancel(self._overlay_sync_job)
             self._overlay_sync_job = None
@@ -919,6 +958,7 @@ class MainWindow(ctk.CTk):
         self._save_config()
         self._engine.stop()
         self._hotkeys.shutdown()
+        self._tray.shutdown()
         self._overlay.destroy()
         self.destroy()
 
