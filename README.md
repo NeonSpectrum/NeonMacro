@@ -44,7 +44,7 @@ pipx install poetry
 
 ```powershell
 poetry add --group dev nuitka ordered-set zstandard
-poetry run python -m nuitka --onefile --standalone --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonmacro\app.py
+poetry run python -m nuitka --onefile --standalone --clcache --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonmacro\app.py
 ```
 
 Build output is written under `build\dist`.
