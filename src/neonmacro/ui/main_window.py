@@ -265,7 +265,7 @@ class MainWindow(ctk.CTk):
         self.profile_table.bind("<Button-1>", self._on_table_click, add="+")
         self.bind("<Configure>", self._on_window_configure, add="+")
         self.bind("<Unmap>", self._on_window_unmap, add="+")
-        self.protocol("WM_DELETE_WINDOW", self._on_exit)
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close_requested)
 
     def _on_window_configure(self, event: tk.Event) -> None:
         if event.widget is not self:
@@ -278,6 +278,16 @@ class MainWindow(ctk.CTk):
         if self.state() != "iconic":
             return
         self.after(0, self._minimize_to_tray)
+
+    def _on_window_close_requested(self) -> None:
+        if self._is_exiting:
+            return
+        if self._config.options.minimize_on_close:
+            was_minimized = self._is_minimized_to_tray
+            self._minimize_to_tray()
+            if self._is_minimized_to_tray and not was_minimized:
+                return
+        self._on_exit()
 
     def _minimize_to_tray(self) -> None:
         if self._is_exiting or self._is_minimized_to_tray:

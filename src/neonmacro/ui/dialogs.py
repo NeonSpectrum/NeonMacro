@@ -28,6 +28,7 @@ class OptionsDialog(ctk.CTkToplevel):
         self.minimize_to_tray_on_startup_var = ctk.BooleanVar(
             value=options.minimize_to_tray_on_startup
         )
+        self.minimize_on_close_var = ctk.BooleanVar(value=options.minimize_on_close)
         self.enable_overlay_var = ctk.BooleanVar(value=options.enable_overlay)
         self.lock_overlay_var = ctk.BooleanVar(value=options.lock_overlay)
         self.force_overlay_visible_var = ctk.BooleanVar(value=options.force_overlay_visible)
@@ -54,19 +55,24 @@ class OptionsDialog(ctk.CTkToplevel):
 
         startup_group = ctk.CTkFrame(body)
         startup_group.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(startup_group, text="Startup").pack(anchor="w", padx=10, pady=(8, 2))
+        ctk.CTkLabel(startup_group, text="General").pack(anchor="w", padx=10, pady=(8, 2))
         self.open_on_startup_checkbox = ctk.CTkCheckBox(
             startup_group,
             text="Open on startup",
             variable=self.open_on_startup_var,
         )
-        self.open_on_startup_checkbox.pack(anchor="w", padx=10, pady=2)
+        self.open_on_startup_checkbox.pack(anchor="w", padx=10, pady=(2, 4))
         self.minimize_to_tray_on_startup_checkbox = ctk.CTkCheckBox(
             startup_group,
             text="Minimize to tray on startup",
             variable=self.minimize_to_tray_on_startup_var,
         )
-        self.minimize_to_tray_on_startup_checkbox.pack(anchor="w", padx=10, pady=(2, 8))
+        self.minimize_to_tray_on_startup_checkbox.pack(anchor="w", padx=10, pady=(2, 4))
+        ctk.CTkCheckBox(
+            startup_group,
+            text="Minimize to tray on close",
+            variable=self.minimize_on_close_var,
+        ).pack(anchor="w", padx=10, pady=(2, 8))
 
         overlay_group = ctk.CTkFrame(body)
         overlay_group.pack(fill="x", pady=(0, 10))
@@ -77,7 +83,7 @@ class OptionsDialog(ctk.CTkToplevel):
             variable=self.enable_overlay_var,
         )
         self.enable_overlay_checkbox.pack(
-            anchor="w", padx=10, pady=2
+            anchor="w", padx=10, pady=(2, 4)
         )
         self.lock_overlay_checkbox = ctk.CTkCheckBox(
             overlay_group,
@@ -85,14 +91,14 @@ class OptionsDialog(ctk.CTkToplevel):
             variable=self.lock_overlay_var,
         )
         self.lock_overlay_checkbox.pack(
-            anchor="w", padx=10, pady=(2, 6)
+            anchor="w", padx=10, pady=(2, 4)
         )
         self.force_overlay_visible_checkbox = ctk.CTkCheckBox(
             overlay_group,
             text="Force overlay visible",
             variable=self.force_overlay_visible_var,
         )
-        self.force_overlay_visible_checkbox.pack(anchor="w", padx=10, pady=(0, 6))
+        self.force_overlay_visible_checkbox.pack(anchor="w", padx=10, pady=(2, 6))
         self.overlay_coords_label = ctk.CTkLabel(overlay_group, text="Coordinates")
         self.overlay_coords_label.pack(anchor="w", padx=10, pady=(0, 2))
         coords_row = ctk.CTkFrame(overlay_group, fg_color="transparent")
@@ -126,19 +132,19 @@ class OptionsDialog(ctk.CTkToplevel):
         spam_group.pack(fill="x", pady=(0, 10))
         ctk.CTkLabel(spam_group, text="Spam Settings").pack(anchor="w", padx=10, pady=(8, 2))
         ctk.CTkCheckBox(spam_group, text="Allow parallel", variable=self.allow_parallel_var).pack(
-            anchor="w", padx=10, pady=2
+            anchor="w", padx=10, pady=(2, 4)
         )
         ctk.CTkCheckBox(
             spam_group,
             text="Allow background (spam key works when target app is not focused)",
             variable=self.allow_background_var,
-        ).pack(anchor="w", padx=10, pady=2)
+        ).pack(anchor="w", padx=10, pady=(2, 4))
         self.auto_pause_stop_checkbox = ctk.CTkCheckBox(
             spam_group,
             text="Enable auto pause/stop when key press",
             variable=self.auto_pause_stop_on_key_press_var,
         )
-        self.auto_pause_stop_checkbox.pack(anchor="w", padx=10, pady=2)
+        self.auto_pause_stop_checkbox.pack(anchor="w", padx=10, pady=(2, 4))
         pause_row = ctk.CTkFrame(spam_group, fg_color="transparent")
         pause_row.pack(fill="x", padx=10, pady=(0, 4))
         self.auto_pause_stop_duration_label = ctk.CTkLabel(
@@ -168,7 +174,7 @@ class OptionsDialog(ctk.CTkToplevel):
             spam_group,
             text="Profile hotkeys only work for allowed applications",
             variable=self.restrict_profile_hotkeys_var,
-        ).pack(anchor="w", padx=10, pady=2)
+        ).pack(anchor="w", padx=10, pady=(2, 4))
         ctk.CTkLabel(spam_group, text="Application list (semicolon separated)").pack(
             anchor="w", padx=10
         )
@@ -239,6 +245,7 @@ class OptionsDialog(ctk.CTkToplevel):
             minimize_to_tray_on_startup=(
                 self.minimize_to_tray_on_startup_var.get() if open_on_startup else False
             ),
+            minimize_on_close=self.minimize_on_close_var.get(),
             enable_overlay=self.enable_overlay_var.get(),
             lock_overlay=self.lock_overlay_var.get(),
             force_overlay_visible=self.force_overlay_visible_var.get(),
@@ -273,6 +280,7 @@ class OptionsDialog(ctk.CTkToplevel):
             self.open_on_startup_var,
             self.minimize_to_tray_on_startup_var,
             self.enable_overlay_var,
+            self.minimize_on_close_var,
             self.lock_overlay_var,
             self.force_overlay_visible_var,
             self.allow_parallel_var,

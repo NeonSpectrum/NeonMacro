@@ -10,6 +10,7 @@ from .defaults import DEFAULT_AUTO_PAUSE_STOP_KEYS
 class AppOptions:
     open_on_startup: bool = False
     minimize_to_tray_on_startup: bool = False
+    minimize_on_close: bool = False
     enable_overlay: bool = True
     lock_overlay: bool = False
     force_overlay_visible: bool = False
@@ -38,6 +39,9 @@ class AppOptions:
         except (TypeError, ValueError):
             merged_duration_ms = 120
         return cls(
+            open_on_startup=bool(data.get("open_on_startup", False)),
+            minimize_to_tray_on_startup=bool(data.get("minimize_to_tray_on_startup", False)),
+            minimize_on_close=bool(data.get("minimize_on_close", False)),
             enable_overlay=bool(data.get("enable_overlay", True)),
             lock_overlay=bool(data.get("lock_overlay", False)),
             force_overlay_visible=bool(data.get("force_overlay_visible", False)),
