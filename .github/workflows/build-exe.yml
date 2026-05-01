@@ -12,6 +12,7 @@ jobs:
     runs-on: windows-latest
     env:
       NUITKA_CACHE_DIR: ${{ github.workspace }}\.nuitka-cache
+      CLCACHE_DIR: ${{ github.workspace }}\.nuitka-cache\clcache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +48,16 @@ jobs:
           python -m pip install poetry
           python -m poetry --version
           python -m poetry install --with dev --no-interaction
+
+      - name: Show clcache stats (before build)
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:CLCACHE_DIR") {
+            Write-Host "CLCACHE_DIR: $env:CLCACHE_DIR"
+            python -m poetry run clcache --show-stats
+          } else {
+            Write-Host "CLCACHE_DIR does not exist yet: $env:CLCACHE_DIR"
+          }
 
       - name: Build executable with Nuitka
         shell: pwsh
@@ -94,6 +105,16 @@ jobs:
             "--output-filename=NeonMacro.exe"
           ) + $commonArgs + @($launcherPath)
           python -m poetry run python -m nuitka @buildArgs
+
+      - name: Show clcache stats (after build)
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:CLCACHE_DIR") {
+            Write-Host "CLCACHE_DIR: $env:CLCACHE_DIR"
+            python -m poetry run clcache --show-stats
+          } else {
+            Write-Host "CLCACHE_DIR not found after build: $env:CLCACHE_DIR"
+          }
 
       - name: Verify built executable exists
         shell: pwsh
