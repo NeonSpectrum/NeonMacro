@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import sys
 from pathlib import Path
 
 import customtkinter as ctk
@@ -63,6 +64,7 @@ def _focus_existing_instance() -> None:
 
 
 def main() -> None:
+    launch_silent = "--silent" in sys.argv[1:]
     mutex_handle = _acquire_single_instance_mutex()
     if mutex_handle is None:
         _focus_existing_instance()
@@ -71,7 +73,7 @@ def main() -> None:
     _set_windows_app_user_model_id()
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
-    window = MainWindow(config_path=config_path())
+    window = MainWindow(config_path=config_path(), launch_silent=launch_silent)
     try:
         window.mainloop()
     except KeyboardInterrupt:

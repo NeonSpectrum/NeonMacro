@@ -16,6 +16,8 @@ NeonMacro is a Windows desktop app (built with CustomTkinter) for creating confi
 - Configure:
   - Global toggle hotkey
   - Overlay enabled/locked
+  - Open on startup (Windows user startup via Run key)
+  - Minimize to tray on startup
   - Allowed application list (default: `Neuz.exe`)
   - Optional restriction so profile hotkeys only work inside allowed applications
 - Auto-save profiles, options, and overlay position to JSON.
@@ -57,6 +59,12 @@ Build output is written under `build\dist`.
 3. Select the active profile.
 4. Use the global toggle hotkey to start/stop sending keys.
 5. Use the overlay to monitor current profile/status.
+
+## Startup options
+
+- Open **Options** and enable **Open on startup** to register NeonMacro in the current user's Windows startup (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
+- Enable **Minimize to tray on startup** to append `--silent` to the startup command.
+- `--silent` launch starts NeonMacro minimized to tray; normal/manual launches stay visible.
 
 ## Troubleshooting
 

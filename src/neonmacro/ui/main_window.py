@@ -13,6 +13,7 @@ import win32gui
 from ..core.config import ConfigStore
 from ..core.hotkeys import HotkeyManager
 from ..core.keymaps import normalize_spam_key_combo
+from ..core.startup import sync_run_on_startup
 from ..models import AppOptions, SpamProfile
 from ..core.overlay import OverlayWindow
 from ..services.profile_service import (
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(ctk.CTk):
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, *, launch_silent: bool = False) -> None:
         super().__init__()
         self.title("NeonMacro")
         self._window_icon_ico_path: str | None = None
@@ -128,6 +129,7 @@ class MainWindow(ctk.CTk):
         self._bind_events()
         self._refresh_profile_list()
         self._apply_active_profiles_state()
+        self._sync_startup_options()
         try:
             self._apply_options()
         except ValueError as exc:
@@ -142,6 +144,8 @@ class MainWindow(ctk.CTk):
                 "Some profile hotkeys were removed because they are unavailable:\n\n"
                 f"{details}",
             )
+        if launch_silent:
+            self.after(0, self._minimize_to_tray)
 
     def _apply_window_icon(self) -> None:
         result = apply_window_icon(self, apply_default_icon=True)
@@ -260,10 +264,12 @@ class MainWindow(ctk.CTk):
     def _minimize_to_tray(self) -> None:
         if self._is_exiting or self._is_minimized_to_tray:
             return
+        self._tray.show()
+        if not self._tray.is_visible:
+            return
         self.withdraw()
         self._overlay.withdraw()
-        self._tray.show()
-        self._is_minimized_to_tray = self._tray.is_visible
+        self._is_minimized_to_tray = True
 
     def _restore_from_tray(self) -> None:
         if self._is_exiting or not self._is_minimized_to_tray:
@@ -456,6 +462,16 @@ class MainWindow(ctk.CTk):
         self._refresh_profile_list(selected_name=self._selected_profile_name)
         self._apply_active_profiles_state()
         self._save_config_debounced()
+        self._sync_startup_options()
+
+    def _sync_startup_options(self) -> None:
+        try:
+            sync_run_on_startup(
+                self._config.options.open_on_startup,
+                launch_silent=self._config.options.minimize_to_tray_on_startup,
+            )
+        except OSError:
+            logger.exception("Failed to update startup registration.")
 
     def _apply_options(self) -> None:
         self._enforce_parallel_profile_policy()

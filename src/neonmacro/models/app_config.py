@@ -34,6 +34,11 @@ class AppConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppConfig":
         profiles = [SpamProfile.from_dict(item) for item in data.get("profiles", [])]
+        options_data = data.get("options")
+        if not isinstance(options_data, dict):
+            # Backward-compatibility for configs saved with a previous typo.
+            legacy_options = data.get("optionss")
+            options_data = legacy_options if isinstance(legacy_options, dict) else {}
         selected = data.get("selected_profile_name")
         if selected is not None:
             selected = str(selected)
@@ -43,7 +48,7 @@ class AppConfig:
         window_height = cls._as_int_or_none(data.get("window_height"))
         return cls(
             profiles=profiles,
-            options=AppOptions.from_dict(data.get("options", {})),
+            options=AppOptions.from_dict(options_data),
             overlay=OverlayConfig.from_dict(data.get("overlay", {})),
             selected_profile_name=selected,
             window_x=window_x,

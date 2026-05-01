@@ -24,6 +24,10 @@ class OptionsDialog(ctk.CTkToplevel):
         self.on_save = on_save
         self._window_icon_ico_path = None
 
+        self.open_on_startup_var = ctk.BooleanVar(value=options.open_on_startup)
+        self.minimize_to_tray_on_startup_var = ctk.BooleanVar(
+            value=options.minimize_to_tray_on_startup
+        )
         self.enable_overlay_var = ctk.BooleanVar(value=options.enable_overlay)
         self.lock_overlay_var = ctk.BooleanVar(value=options.lock_overlay)
         self.force_overlay_visible_var = ctk.BooleanVar(value=options.force_overlay_visible)
@@ -47,6 +51,22 @@ class OptionsDialog(ctk.CTkToplevel):
 
         body = ctk.CTkFrame(self)
         body.pack(fill="both", expand=True, padx=10, pady=10)
+
+        startup_group = ctk.CTkFrame(body)
+        startup_group.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(startup_group, text="Startup").pack(anchor="w", padx=10, pady=(8, 2))
+        self.open_on_startup_checkbox = ctk.CTkCheckBox(
+            startup_group,
+            text="Open on startup",
+            variable=self.open_on_startup_var,
+        )
+        self.open_on_startup_checkbox.pack(anchor="w", padx=10, pady=2)
+        self.minimize_to_tray_on_startup_checkbox = ctk.CTkCheckBox(
+            startup_group,
+            text="Minimize to tray on startup",
+            variable=self.minimize_to_tray_on_startup_var,
+        )
+        self.minimize_to_tray_on_startup_checkbox.pack(anchor="w", padx=10, pady=(2, 8))
 
         overlay_group = ctk.CTkFrame(body)
         overlay_group.pack(fill="x", pady=(0, 10))
@@ -164,11 +184,13 @@ class OptionsDialog(ctk.CTkToplevel):
         ).pack(fill="x", padx=10, pady=(2, 10))
 
         self._register_autosave_callbacks()
+        self.open_on_startup_var.trace_add("write", self._on_open_on_startup_changed)
         self.enable_overlay_var.trace_add("write", self._on_enable_overlay_changed)
         self.force_overlay_visible_var.trace_add("write", self._on_force_overlay_visible_changed)
         self.auto_pause_stop_on_key_press_var.trace_add(
             "write", self._on_auto_pause_stop_toggle_changed
         )
+        self._apply_startup_group_state()
         self._apply_overlay_group_state()
         self._apply_force_overlay_visible_state()
         self._apply_auto_pause_stop_state()
@@ -208,7 +230,12 @@ class OptionsDialog(ctk.CTkToplevel):
             item.strip() for item in self.auto_pause_stop_keys_var.get().split(";") if item.strip()
         ]
         pause_stop_ms = self._parse_pause_stop_ms()
+        open_on_startup = self.open_on_startup_var.get()
         return AppOptions(
+            open_on_startup=open_on_startup,
+            minimize_to_tray_on_startup=(
+                self.minimize_to_tray_on_startup_var.get() if open_on_startup else False
+            ),
             enable_overlay=self.enable_overlay_var.get(),
             lock_overlay=self.lock_overlay_var.get(),
             force_overlay_visible=self.force_overlay_visible_var.get(),
@@ -240,6 +267,8 @@ class OptionsDialog(ctk.CTkToplevel):
 
     def _register_autosave_callbacks(self) -> None:
         watched_vars = (
+            self.open_on_startup_var,
+            self.minimize_to_tray_on_startup_var,
             self.enable_overlay_var,
             self.lock_overlay_var,
             self.force_overlay_visible_var,
@@ -316,6 +345,15 @@ class OptionsDialog(ctk.CTkToplevel):
 
     def _on_auto_pause_stop_toggle_changed(self, *_args) -> None:
         self._apply_auto_pause_stop_state()
+
+    def _on_open_on_startup_changed(self, *_args) -> None:
+        self._apply_startup_group_state()
+
+    def _apply_startup_group_state(self) -> None:
+        open_enabled = self.open_on_startup_var.get()
+        if not open_enabled:
+            self.minimize_to_tray_on_startup_var.set(False)
+        set_checkbox_enabled(self.minimize_to_tray_on_startup_checkbox, enabled=open_enabled)
 
     def _apply_auto_pause_stop_state(self) -> None:
         enabled = self.auto_pause_stop_on_key_press_var.get()
