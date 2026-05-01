@@ -12,8 +12,6 @@ jobs:
     runs-on: windows-latest
     env:
       NUITKA_CACHE_DIR: ${{ github.workspace }}\.nuitka-cache
-      SCCACHE_DIR: ${{ github.workspace }}\.nuitka-cache\sccache
-      SCCACHE_CACHE_SIZE: 2G
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,41 +48,10 @@ jobs:
           python -m poetry --version
           python -m poetry install --with dev --no-interaction
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Route cl.exe through sccache
-        shell: pwsh
-        run: |
-          $sccache = (where.exe sccache 2>$null | Select-Object -First 1)
-          if (-not $sccache) {
-            throw "sccache was not found on PATH after setup action."
-          }
-          $wrapperDir = Join-Path $env:RUNNER_TEMP "sccache-msvc-wrapper"
-          New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
-          Copy-Item $sccache (Join-Path $wrapperDir "cl.exe") -Force
-          Add-Content -Path $env:GITHUB_PATH -Value $wrapperDir
-          Write-Host "Added cl.exe wrapper directory to PATH: $wrapperDir"
-
-      - name: Show sccache stats (before build)
-        shell: pwsh
-        run: |
-          Write-Host "SCCACHE_DIR: $env:SCCACHE_DIR"
-          New-Item -ItemType Directory -Path "$env:SCCACHE_DIR" -Force | Out-Null
-          sccache --stop-server | Out-Null
-          sccache --start-server
-          sccache --zero-stats
-          sccache --show-stats
-
       - name: Build executable with Nuitka
         shell: pwsh
         run: |
           python -m poetry run build
-
-      - name: Show sccache stats (after build)
-        shell: pwsh
-        run: |
-          sccache --show-stats
 
       - name: Verify built executable exists
         shell: pwsh
