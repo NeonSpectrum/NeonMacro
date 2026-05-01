@@ -185,6 +185,9 @@ class OptionsDialog(ctk.CTkToplevel):
 
         self._register_autosave_callbacks()
         self.open_on_startup_var.trace_add("write", self._on_open_on_startup_changed)
+        self.minimize_to_tray_on_startup_var.trace_add(
+            "write", self._on_minimize_to_tray_on_startup_changed
+        )
         self.enable_overlay_var.trace_add("write", self._on_enable_overlay_changed)
         self.force_overlay_visible_var.trace_add("write", self._on_force_overlay_visible_changed)
         self.auto_pause_stop_on_key_press_var.trace_add(
@@ -299,6 +302,8 @@ class OptionsDialog(ctk.CTkToplevel):
         if self._autosave_job is not None:
             self.after_cancel(self._autosave_job)
             self._autosave_job = None
+            # Persist pending edits when the dialog is closed quickly.
+            self._autosave_now()
 
     def _reset_overlay_position(self) -> None:
         screen_w = self.winfo_screenwidth()
@@ -348,6 +353,15 @@ class OptionsDialog(ctk.CTkToplevel):
 
     def _on_open_on_startup_changed(self, *_args) -> None:
         self._apply_startup_group_state()
+        self._save_startup_options_now()
+
+    def _on_minimize_to_tray_on_startup_changed(self, *_args) -> None:
+        self._save_startup_options_now()
+
+    def _save_startup_options_now(self) -> None:
+        options = self._build_options()
+        overlay_position = self._parse_overlay_position()
+        self.on_save(options, overlay_position)
 
     def _apply_startup_group_state(self) -> None:
         open_enabled = self.open_on_startup_var.get()

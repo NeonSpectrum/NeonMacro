@@ -31,7 +31,7 @@ NeonMacro is a Windows desktop app (built with CustomTkinter) for creating confi
 
 ```powershell
 poetry install
-poetry run neonmacro
+poetry run dev
 ```
 
 If Poetry is not installed yet:
@@ -44,10 +44,10 @@ pipx install poetry
 
 ```powershell
 poetry add --group dev nuitka ordered-set zstandard
-poetry run python -m nuitka --onefile --standalone --assume-yes-for-downloads --enable-plugin=tk-inter --windows-console-mode=disable --output-dir=build\dist src\neonmacro\app.py
+poetry run build
 ```
 
-Build output is written under `build\dist`.
+Build output is written to `build\dist\NeonMacro.exe`.
 
 ## Basic usage
 

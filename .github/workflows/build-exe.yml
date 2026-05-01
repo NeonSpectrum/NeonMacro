@@ -62,49 +62,7 @@ jobs:
       - name: Build executable with Nuitka
         shell: pwsh
         run: |
-          $iconPath = "assets\icons\logo.ico"
-          if (!(Test-Path $iconPath)) {
-            $ctkIconPath = python -m poetry run python -c "import customtkinter, pathlib; print(pathlib.Path(customtkinter.__file__).resolve().parent / 'assets' / 'icons' / 'CustomTkinter_icon_Windows.ico')"
-            $ctkIconPath = $ctkIconPath.Trim()
-            if (Test-Path $ctkIconPath) {
-              $iconPath = $ctkIconPath
-            } else {
-              $iconPath = $null
-            }
-          }
-          New-Item -ItemType Directory -Force -Path "build" | Out-Null
-          $launcherPath = "build\nuitka_entry.py"
-          @(
-            "import os",
-            "os.environ['LOG_LEVEL'] = 'NONE'",
-            "",
-            "from neonmacro.app import main",
-            "",
-            "if __name__ == '__main__':",
-            "    main()"
-          ) | Set-Content -Path $launcherPath -Encoding UTF8
-
-          $commonArgs = @(
-            "--onefile",
-            "--standalone",
-            "--assume-yes-for-downloads",
-            "--enable-plugin=tk-inter",
-            "--include-package=neonmacro",
-            "--output-dir=build\dist"
-          )
-
-          # Prefer project icon, fallback to CustomTkinter icon.
-          if ($iconPath -and (Test-Path $iconPath)) {
-            $commonArgs += "--windows-icon-from-ico=$iconPath"
-            # Bundle the runtime window icon so Tk can set titlebar/taskbar icon.
-            $commonArgs += "--include-data-files=$iconPath=neonmacro/assets/icons/logo.ico"
-          }
-
-          $buildArgs = @(
-            "--windows-console-mode=disable",
-            "--output-filename=NeonMacro.exe"
-          ) + $commonArgs + @($launcherPath)
-          python -m poetry run python -m nuitka @buildArgs
+          python -m poetry run build
 
       - name: Show clcache stats (after build)
         shell: pwsh

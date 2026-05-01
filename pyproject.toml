@@ -13,12 +13,11 @@ dependencies = [
     "mouse>=0.7.1",
     "psutil>=5.9.8",
     "pywin32>=306",
-    "pystray (>=0.19.5,<0.20.0)",
-    "pillow (>=12.2.0,<13.0.0)",
 ]
 
 [project.scripts]
-neonmacro = "neonmacro.app:main"
+dev = "neonmacro.app:main"
+build = "neonmacro.build_exe:main"
 
 [tool.poetry]
 packages = [{ include = "neonmacro", from = "src" }]

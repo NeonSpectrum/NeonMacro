@@ -13,7 +13,7 @@ import win32gui
 from ..core.config import ConfigStore
 from ..core.hotkeys import HotkeyManager
 from ..core.keymaps import normalize_spam_key_combo
-from ..core.startup import sync_run_on_startup
+from ..core.startup import read_run_on_startup_state, sync_run_on_startup
 from ..models import AppOptions, SpamProfile
 from ..core.overlay import OverlayWindow
 from ..services.profile_service import (
@@ -55,6 +55,7 @@ class MainWindow(ctk.CTk):
 
         self._store = ConfigStore(config_path)
         self._config = self._store.load()
+        self._sync_startup_options_from_registry()
         self._apply_initial_window_geometry()
 
         self._engine = SpamEngine(
@@ -199,6 +200,22 @@ class MainWindow(ctk.CTk):
         self._startup_hotkey_issues.extend(issues)
         if removed_any:
             self._store.save(self._config)
+
+    def _sync_startup_options_from_registry(self) -> None:
+        try:
+            open_on_startup, minimize_on_startup = read_run_on_startup_state()
+        except OSError:
+            logger.exception("Failed to read startup registration state.")
+            return
+        options = self._config.options
+        if (
+            options.open_on_startup == open_on_startup
+            and options.minimize_to_tray_on_startup == minimize_on_startup
+        ):
+            return
+        options.open_on_startup = open_on_startup
+        options.minimize_to_tray_on_startup = minimize_on_startup
+        self._store.save(self._config)
 
     def _build_layout(self) -> None:
         # Keep the form section stable; let the table section absorb resize first.
@@ -476,6 +493,12 @@ class MainWindow(ctk.CTk):
             )
         except OSError:
             logger.exception("Failed to update startup registration.")
+            messagebox.showerror(
+                "Startup registration",
+                "Failed to update the Windows startup entry.\n\n"
+                "Please run NeonMacro once as your normal user and try toggling "
+                "'Open on startup' again.",
+            )
 
     def _apply_options(self) -> None:
         self._enforce_parallel_profile_policy()
