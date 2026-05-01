@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      NUITKA_CACHE_DIR: ${{ github.workspace }}\.nuitka-cache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,12 +35,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~\AppData\Local\Nuitka\Nuitka\Cache
-            ~\AppData\Local\clcache
-            ~\.cache\Nuitka
-          key: ${{ runner.os }}-nuitka-${{ hashFiles('pyproject.toml', 'src/**/*.py') }}
+            .nuitka-cache
+          key: ${{ runner.os }}-nuitka-py311-${{ hashFiles('poetry.lock', '.github/workflows/build-exe.yml') }}
           restore-keys: |
-            ${{ runner.os }}-nuitka-
+            ${{ runner.os }}-nuitka-py311-
 
       - name: Install dependencies
         shell: pwsh
@@ -76,7 +76,6 @@ jobs:
           $commonArgs = @(
             "--onefile",
             "--standalone",
-            "--clcache",
             "--assume-yes-for-downloads",
             "--enable-plugin=tk-inter",
             "--include-package=neonmacro",

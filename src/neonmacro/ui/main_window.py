@@ -127,6 +127,7 @@ class MainWindow(ctk.CTk):
         self._build_layout()
         self._apply_table_theme()
         self._bind_events()
+        self._tray.show()
         self._refresh_profile_list()
         self._apply_active_profiles_state()
         self._sync_startup_options()
@@ -272,10 +273,13 @@ class MainWindow(ctk.CTk):
         self._is_minimized_to_tray = True
 
     def _restore_from_tray(self) -> None:
-        if self._is_exiting or not self._is_minimized_to_tray:
+        if self._is_exiting:
+            return
+        if not self._is_minimized_to_tray:
+            self.lift()
+            self.focus_force()
             return
         self._is_minimized_to_tray = False
-        self._tray.hide()
         self.deiconify()
         self.lift()
         self.focus_force()
