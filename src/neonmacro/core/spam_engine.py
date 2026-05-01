@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from ..models import SpamProfile
 from ..targeting.window_targeting import collect_targets_by_profile

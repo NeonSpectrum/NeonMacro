@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import tkinter.font as tkfont
-from typing import Callable
+from collections.abc import Callable
 
 import customtkinter as ctk
 

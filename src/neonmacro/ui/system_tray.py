@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 import win32api
 import win32con

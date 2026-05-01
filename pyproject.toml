@@ -6,7 +6,7 @@ build-backend = "poetry.core.masonry.api"
 name = "neonmacro"
 version = "0.1.0"
 description = "CustomTkinter NeonMacro key spammer using PostMessage."
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "customtkinter>=5.2.2",
     "keyboard>=0.13.5",

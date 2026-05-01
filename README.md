@@ -25,7 +25,7 @@ NeonMacro is a Windows desktop app (built with CustomTkinter) for creating confi
 ## Requirements
 
 - Windows 10/11
-- Python 3.10+ recommended
+- Python 3.14+
 
 ## Quick start (Poetry)
 
