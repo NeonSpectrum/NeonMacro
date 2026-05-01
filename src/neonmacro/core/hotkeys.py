@@ -109,6 +109,7 @@ _MOD_ALT = 0x0001
 _MOD_CONTROL = 0x0002
 _MOD_SHIFT = 0x0004
 _MOD_WIN = 0x0008
+_MAPVK_VK_TO_VSC = 0
 
 REGISTER_HOTKEY_MODIFIERS: dict[str, int] = {
     "CTRL": _MOD_CONTROL,
@@ -147,6 +148,8 @@ class HotkeyManager:
         self._registered_auto_stop_mouse_handlers: list[Callable] = []
         self._registered_priority_pause_mouse_handlers: list[Callable] = []
         self._registered_priority_pause_keyboard_handlers: list[Callable] = []
+        self._registered_profile_keyboard_handlers: list[Callable] = []
+        self._registered_settings_keyboard_handlers: list[Callable] = []
         self._probe_hotkey_id = 0xA000
 
     def apply_profile_hotkeys(self, profiles: list[SpamProfile]) -> None:
@@ -179,12 +182,11 @@ class HotkeyManager:
                     into=self._registered_mouse_handlers,
                 )
             else:
-                hotkey_id = keyboard.add_hotkey(
-                    parsed.keyboard_hotkey,
-                    lambda profile_name=profile.name: self._on_profile_hotkey(profile_name),
-                    suppress=False,
+                self._register_keyboard_hook_hotkey(
+                    parsed=parsed,
+                    callback=lambda profile_name=profile.name: self._on_profile_hotkey(profile_name),
+                    into=self._registered_profile_keyboard_handlers,
                 )
-                self._registered_ids.append(hotkey_id)
             seen[normalized] = profile.name
 
     def normalize_hotkey(self, hotkey: str) -> str:
@@ -274,10 +276,10 @@ class HotkeyManager:
             )
         if parsed.includes_mouse:
             raise ValueError("Settings overlay hotkey must use a keyboard key.")
-        self._registered_settings_hotkey_id = keyboard.add_hotkey(
-            parsed.keyboard_hotkey,
-            self._on_settings_toggle_hotkey,
-            suppress=False,
+        self._register_keyboard_hook_hotkey(
+            parsed=parsed,
+            callback=self._on_settings_toggle_hotkey,
+            into=self._registered_settings_keyboard_handlers,
         )
         return normalized
 
@@ -351,19 +353,71 @@ class HotkeyManager:
         callback: Callable[[], None],
         into: list[Callable],
     ) -> None:
-        expected_key = parsed.key_token.lower() if len(parsed.key_token) > 1 else parsed.key_token.lower()
-        modifiers = [KEYBOARD_MODIFIER_ALIASES[item] for item in parsed.modifiers]
+        expected_key = parsed.key_token.lower() if len(parsed.key_token) > 1 else parsed.key_token
+        expected_scan_code = _scan_code_for_vk(HOTKEY_VK_BY_TOKEN.get(parsed.key_token))
+        modifiers = set(parsed.modifiers)
+        pressed = False
 
         def _handler(event) -> None:
+            nonlocal pressed
             if not isinstance(event, keyboard.KeyboardEvent):
+                return
+            event_name = (event.name or "").lower()
+            event_scan_code = getattr(event, "scan_code", None)
+            key_matches = event_name == expected_key or (
+                expected_scan_code is not None and event_scan_code == expected_scan_code
+            )
+            if not key_matches:
+                return
+            if event.event_type == "up":
+                pressed = False
                 return
             if event.event_type != "down":
                 return
-            event_name = (event.name or "").lower()
-            if event_name != expected_key:
+            if pressed:
                 return
-            if not all(keyboard.is_pressed(modifier_key) for modifier_key in modifiers):
+            ctrl_down = keyboard.is_pressed("ctrl") or keyboard.is_pressed("right ctrl")
+            rctrl_down = keyboard.is_pressed("right ctrl")
+            alt_down = keyboard.is_pressed("alt") or keyboard.is_pressed("right alt")
+            ralt_down = keyboard.is_pressed("right alt")
+            shift_down = keyboard.is_pressed("shift") or keyboard.is_pressed("right shift")
+            rshift_down = keyboard.is_pressed("right shift")
+            lwin_down = keyboard.is_pressed("left windows")
+            rwin_down = keyboard.is_pressed("right windows")
+            apps_down = keyboard.is_pressed("apps")
+
+            if ("CTRL" in modifiers) and not ctrl_down:
                 return
+            if ("RCTRL" in modifiers) and not rctrl_down:
+                return
+            if ("ALT" in modifiers) and not alt_down:
+                return
+            if ("RALT" in modifiers) and not ralt_down:
+                return
+            if ("SHIFT" in modifiers) and not shift_down:
+                return
+            if ("RSHIFT" in modifiers) and not rshift_down:
+                return
+            if ("LWIN" in modifiers) and not lwin_down:
+                return
+            if ("RWIN" in modifiers) and not rwin_down:
+                return
+            if ("APPS" in modifiers) and not apps_down:
+                return
+
+            # Enforce exact modifier intent so plain-key hotkeys don't fire while
+            # CTRL/ALT/SHIFT/WIN/APPS are held for another hotkey.
+            if ("CTRL" not in modifiers and "RCTRL" not in modifiers) and ctrl_down:
+                return
+            if ("ALT" not in modifiers and "RALT" not in modifiers) and alt_down:
+                return
+            if ("SHIFT" not in modifiers and "RSHIFT" not in modifiers) and shift_down:
+                return
+            if ("LWIN" not in modifiers and "RWIN" not in modifiers) and (lwin_down or rwin_down):
+                return
+            if ("APPS" not in modifiers) and apps_down:
+                return
+            pressed = True
             callback()
 
         keyboard.hook(_handler)
@@ -382,6 +436,9 @@ class HotkeyManager:
             except KeyError:
                 continue
         self._registered_ids.clear()
+        for handler in self._registered_profile_keyboard_handlers:
+            keyboard.unhook(handler)
+        self._registered_profile_keyboard_handlers.clear()
         for handler in self._registered_mouse_handlers:
             mouse.unhook(handler)
         self._registered_mouse_handlers.clear()
@@ -418,6 +475,9 @@ class HotkeyManager:
             except KeyError:
                 pass
             self._registered_settings_hotkey_id = None
+        for handler in self._registered_settings_keyboard_handlers:
+            keyboard.unhook(handler)
+        self._registered_settings_keyboard_handlers.clear()
 
 
 def _normalize_modifier_token(token: str) -> str | None:
@@ -545,3 +605,12 @@ def _parse_hotkey(raw: str) -> ParsedHotkey | None:
         keyboard_hotkey=keyboard_hotkey,
         includes_mouse=includes_mouse,
     )
+
+
+def _scan_code_for_vk(vk: int | None) -> int | None:
+    if vk is None:
+        return None
+    scan_code = int(_USER32.MapVirtualKeyW(vk, _MAPVK_VK_TO_VSC))
+    if scan_code <= 0:
+        return None
+    return scan_code
