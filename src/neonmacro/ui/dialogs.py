@@ -5,6 +5,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 from ..models import AppOptions
+from .key_capture import attach_hotkey_capture, format_hotkey_for_display
 from .widget_state import set_checkbox_enabled, set_entry_enabled
 from .window_icon import apply_window_icon
 
@@ -17,6 +18,7 @@ class OptionsDialog(ctk.CTkToplevel):
         overlay_x: int,
         overlay_y: int,
         on_save,
+        on_hotkey_capture_state_changed=None,
     ) -> None:
         super().__init__(parent)
         self.title("Options")
@@ -40,15 +42,20 @@ class OptionsDialog(ctk.CTkToplevel):
         self.auto_pause_stop_duration_ms_var = ctk.StringVar(
             value=str(options.auto_pause_stop_duration_ms)
         )
-        self.auto_pause_stop_keys_var = ctk.StringVar(value=";".join(options.auto_pause_stop_keys))
+        self.auto_pause_stop_keys_var = ctk.StringVar(
+            value=";".join(format_hotkey_for_display(item) for item in options.auto_pause_stop_keys)
+        )
         self.restrict_profile_hotkeys_var = ctk.BooleanVar(
             value=options.restrict_profile_hotkeys_to_allowed_apps
         )
         self.allowed_apps_var = ctk.StringVar(value=";".join(options.allowed_applications))
-        self.settings_toggle_hotkey_var = ctk.StringVar(value=options.settings_toggle_hotkey)
+        self.settings_toggle_hotkey_var = ctk.StringVar(
+            value=format_hotkey_for_display(options.settings_toggle_hotkey)
+        )
         self.overlay_x_var = ctk.StringVar(value=str(overlay_x))
         self.overlay_y_var = ctk.StringVar(value=str(overlay_y))
         self._autosave_job: str | None = None
+        self._on_hotkey_capture_state_changed = on_hotkey_capture_state_changed
 
         body = ctk.CTkFrame(self)
         body.pack(fill="both", expand=True, padx=10, pady=10)
@@ -182,12 +189,13 @@ class OptionsDialog(ctk.CTkToplevel):
             fill="x", padx=10, pady=(2, 10)
         )
         ctk.CTkLabel(spam_group, text="Settings overlay hotkey").pack(anchor="w", padx=10)
-        ctk.CTkEntry(
+        self.settings_toggle_hotkey_entry = ctk.CTkEntry(
             spam_group,
             textvariable=self.settings_toggle_hotkey_var,
             width=320,
-            placeholder_text="e.g. {F10}",
-        ).pack(fill="x", padx=10, pady=(2, 10))
+            placeholder_text="e.g. CTRL+F10",
+        )
+        self.settings_toggle_hotkey_entry.pack(fill="x", padx=10, pady=(2, 10))
 
         self._register_autosave_callbacks()
         self.open_on_startup_var.trace_add("write", self._on_open_on_startup_changed)
@@ -203,6 +211,11 @@ class OptionsDialog(ctk.CTkToplevel):
         self._apply_overlay_group_state()
         self._apply_force_overlay_visible_state()
         self._apply_auto_pause_stop_state()
+        attach_hotkey_capture(
+            self.settings_toggle_hotkey_entry,
+            on_captured=lambda value: format_hotkey_for_display(value),
+            on_capture_state_changed=self._on_hotkey_capture_state_changed,
+        )
         self._apply_window_icon(parent)
         self.bind("<Destroy>", self._on_destroy, add="+")
 

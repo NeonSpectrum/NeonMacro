@@ -115,16 +115,16 @@ def build_main_window_widgets(
     interval_entry = ctk.CTkEntry(bottom, placeholder_text="Enter interval (ms)...")
     interval_entry.grid(row=7, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-    ctk.CTkLabel(bottom, text="Hotkey (e.g., {CTRL}{F1}, {CTRL}1, {CTRL}`)").grid(
+    ctk.CTkLabel(bottom, text="Hotkey (click then press keys, e.g., CTRL+F1)").grid(
         row=8, column=0, sticky="w", padx=10, pady=(0, 2)
     )
-    hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="Enter hotkey...")
+    hotkey_entry = ctk.CTkEntry(bottom, placeholder_text="Click and press keys...")
     hotkey_entry.grid(row=9, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-    ctk.CTkLabel(bottom, text="Spam Key (single key, e.g., {F1}, A, /)").grid(
+    ctk.CTkLabel(bottom, text="Spam Key (click then press keys, modifiers supported)").grid(
         row=10, column=0, sticky="w", padx=10, pady=(0, 2)
     )
-    spam_key_entry = ctk.CTkEntry(bottom, placeholder_text="Enter spam key...")
+    spam_key_entry = ctk.CTkEntry(bottom, placeholder_text="Click and press keys...")
     spam_key_entry.grid(row=11, column=0, sticky="ew", padx=10, pady=(0, 8))
 
     button_row = ctk.CTkFrame(bottom, fg_color="transparent")

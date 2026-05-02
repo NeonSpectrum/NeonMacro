@@ -24,6 +24,8 @@ from ..services.profile_service import (
 )
 from ..core.spam_engine import EngineStatus, SpamEngine
 from .dialogs import OptionsDialog
+from .help_content import build_help_popup_text
+from .key_capture import attach_hotkey_capture, format_hotkey_for_display
 from .main_window_components import build_main_window_widgets
 from .overlay_controller import (
     active_profiles_matching_title,
@@ -123,6 +125,7 @@ class MainWindow(ctk.CTk):
         self._priority_pause_status_job: str | None = None
         self._priority_paused_profile_names: set[str] = set()
         self._priority_pause_deadline: float = 0.0
+        self._active_hotkey_capture_overlays = 0
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
         self._build_layout()
@@ -256,6 +259,39 @@ class MainWindow(ctk.CTk):
         self._table_ui.build_checkbox_images()
         self.after_idle(self._table_ui.apply_responsive_column_widths)
         self.after_idle(self._table_ui.update_scrollbar_visibility)
+        self._setup_key_capture_inputs()
+
+    def _setup_key_capture_inputs(self) -> None:
+        attach_hotkey_capture(
+            self.hotkey_entry,
+            on_captured=lambda value: format_hotkey_for_display(
+                self._hotkeys.normalize_hotkey(value) or value
+            ),
+            on_capture_state_changed=self._on_hotkey_capture_state_changed,
+        )
+        attach_hotkey_capture(
+            self.spam_key_entry,
+            on_captured=self._normalize_captured_spam_key,
+            allow_modifiers=False,
+            on_capture_state_changed=self._on_hotkey_capture_state_changed,
+        )
+
+    def _on_hotkey_capture_state_changed(self, active: bool) -> None:
+        if active:
+            self._active_hotkey_capture_overlays += 1
+        else:
+            self._active_hotkey_capture_overlays = max(
+                0, self._active_hotkey_capture_overlays - 1
+            )
+        self._hotkeys.set_enabled(self._active_hotkey_capture_overlays == 0)
+
+    @staticmethod
+    def _normalize_captured_spam_key(value: str) -> str:
+        try:
+            canonical, _ = normalize_spam_key_combo(value)
+        except ValueError:
+            return value
+        return format_hotkey_for_display(canonical)
 
     def _bind_events(self) -> None:
         self.profile_table.bind("<<TreeviewSelect>>", self._on_table_selected)
@@ -327,6 +363,7 @@ class MainWindow(ctk.CTk):
             overlay_x=self._config.overlay.x,
             overlay_y=self._config.overlay.y,
             on_save=self._save_options,
+            on_hotkey_capture_state_changed=self._on_hotkey_capture_state_changed,
         )
         self._options_dialog = dialog
         self._options_return_focus_hwnd = return_focus_hwnd
@@ -375,24 +412,7 @@ class MainWindow(ctk.CTk):
         )
 
     def _open_key_help(self) -> None:
-        symbols = "` ~ ! @ # $ % ^ & * ( ) - _ = + [ ] { } \\ | ; : ' \" , < . > / ?"
-        text = (
-            "Spam keys\n"
-            "- Allowed: 0-9, A-Z, {F1}-{F24}, symbols, named keys, and mouse buttons.\n"
-            "- Symbols: "
-            f"{symbols}\n"
-            "- Named keys: {DEL} {INS} {PGUP} {PGDN} {HOME} {END} {RETURN} {ESCAPE} {BACKSPACE} {TAB} {PRTSCN} {PAUSE} {SPACE} {CAPSLOCK} {NUMLOCK} {SCROLLLOCK} {BREAK} {CTRLBREAK}\n"
-            "- Mouse: {LMB}, {RMB}, {MMB}, {MB4}, {MB5}\n"
-            "- Rule: spam key must be exactly one key with no modifier.\n"
-            "- Examples: {F1}, A, 7, /, `, {LMB}, {DEL}, {PRTSCN}\n\n"
-            "Hotkey input\n"
-            "- Format: append one key after optional modifiers.\n"
-            "- Modifiers: {CTRL} {RCTRL} {ALT} {RALT} {SHIFT} {RSHIFT} {LWIN} {RWIN} {APPS}\n"
-            "- Keys: letters/numbers, symbols, {F1}-{F24}, and the same named keys listed above.\n"
-            "- Mouse buttons: {LMB}, {RMB}, {MMB}, {MB4}, {MB5}\n"
-            "- Examples: {CTRL}{F1}, {CTRL}1, {CTRL}`, {RALT}{LMB}, {APPS}A, {CTRL}{DEL}"
-        )
-        messagebox.showinfo("Key Input Help", text)
+        messagebox.showinfo("Help", build_help_popup_text())
 
     def _set_modal_popup(self, dialog: tk.Toplevel) -> None:
         # Make popups modal so interactions stay within the popup window.
@@ -818,11 +838,11 @@ class MainWindow(ctk.CTk):
         self.window_title_entry.insert(0, profile.window_title)
         self.use_regex_var.set(profile.use_regex)
         self.spam_key_entry.delete(0, tk.END)
-        self.spam_key_entry.insert(0, profile.spam_key)
+        self.spam_key_entry.insert(0, format_hotkey_for_display(profile.spam_key))
         self.interval_entry.delete(0, tk.END)
         self.interval_entry.insert(0, str(profile.interval_ms))
         self.hotkey_entry.delete(0, tk.END)
-        self.hotkey_entry.insert(0, profile.select_hotkey)
+        self.hotkey_entry.insert(0, format_hotkey_for_display(profile.select_hotkey))
 
     def _on_table_click(self, event) -> None:
         row_id = self.profile_table.identify_row(event.y)
@@ -966,8 +986,8 @@ class MainWindow(ctk.CTk):
                     profile.name,
                     profile.window_title,
                     profile.interval_ms,
-                    profile.select_hotkey,
-                    profile.spam_key,
+                    format_hotkey_for_display(profile.select_hotkey),
+                    format_hotkey_for_display(profile.spam_key),
                 ),
             )
         self.after_idle(self._update_table_scrollbar_visibility)
@@ -996,8 +1016,8 @@ class MainWindow(ctk.CTk):
                 profile.name,
                 profile.window_title,
                 profile.interval_ms,
-                profile.select_hotkey,
-                profile.spam_key,
+                format_hotkey_for_display(profile.select_hotkey),
+                format_hotkey_for_display(profile.spam_key),
             ),
         )
 

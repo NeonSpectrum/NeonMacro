@@ -8,6 +8,9 @@ alwaysApply: true
 - Purpose: Windows CustomTkinter desktop tool for profile-based key spamming to target apps via Win32 PostMessage.
 - App entry: src/neonmacro/app.py (single-instance guard, logging setup, launches MainWindow).
 - Main feature hub: src/neonmacro/ui/main_window.py (profile CRUD, hotkeys, engine state, options, overlay visibility logic).
+- Main layout builder: src/neonmacro/ui/main_window_components.py (main window widget structure and form/table controls).
+- Key capture UI: src/neonmacro/ui/key_capture.py (click-to-capture key inputs with modifier support for profile and options forms).
+- Help popup content: src/neonmacro/ui/help_content.py (single source of Help dialog sections shown from MainWindow).
 - Core runtime pieces: src/neonmacro/core/spam_engine.py (send loop), src/neonmacro/core/hotkeys.py (global/profile hotkeys), src/neonmacro/core/config.py (JSON load/save), src/neonmacro/core/startup.py (Windows Run-key startup registration).
 - Overlay + targeting: src/neonmacro/core/overlay.py, src/neonmacro/ui/overlay_controller.py, src/neonmacro/targeting/window_targeting.py.
 - Tray integration: src/neonmacro/ui/system_tray.py (system tray icon/menu), src/neonmacro/ui/main_window.py (minimize-to-tray and restore wiring).
@@ -20,3 +23,4 @@ Always update this file (`.cursor/rules/project-map.mdc`) whenever project chang
 - New/renamed/removed core feature modules.
 - Significant ownership shifts (feature logic moved to different files).
 - New subsystems that should be part of the short project map.
+- Any UI/feature updates that change user-facing behavior must include corresponding Help popup updates in `src/neonmacro/ui/help_content.py`.

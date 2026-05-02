@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .hotkeys import _parse_hotkey
 from .keycodes import KEY_ALIASES, MODIFIER_BY_TOKEN, VK_BY_KEY
 
 SPAM_MOUSE_ALIASES: dict[str, str] = {
@@ -38,46 +39,35 @@ SPAM_KEYS = list(VK_BY_KEY.keys())
 
 
 def normalize_spam_key_combo(raw: str) -> tuple[str, list[int]]:
-    normalized_raw = raw.replace("＋", "+").strip()
-    parts = [item.strip() for item in normalized_raw.split("+") if item.strip()]
-    if not parts:
-        raise ValueError("Spam key is required.")
-    if len(parts) > 1:
-        raise ValueError("Spam key cannot use modifiers/combinations. Use a single key only (example: F1 or A).")
-    main_key: str | None = None
-    for part in parts:
-        if part.startswith("{") and part.endswith("}") and len(part) >= 3:
-            part = part[1:-1].strip()
-        lowered = part.lower()
-        compact = lowered.replace(" ", "")
-        modifier_vk = MODIFIER_BY_TOKEN.get(lowered)
+    parsed = _parse_hotkey(raw)
+    if parsed is None:
+        raise ValueError("Spam key format is invalid.")
+    if parsed.modifiers:
+        raise ValueError("Spam key must be a single key without modifiers.")
+
+    if parsed.key_token in {"LMB", "RMB", "MMB", "MB4", "MB5"}:
+        return parsed.canonical, []
+
+    sequence: list[int] = []
+    modifier_vk_by_token = {
+        "CTRL": MODIFIER_BY_TOKEN["ctrl"],
+        "RCTRL": MODIFIER_BY_TOKEN["rctrl"],
+        "ALT": MODIFIER_BY_TOKEN["alt"],
+        "RALT": MODIFIER_BY_TOKEN["ralt"],
+        "SHIFT": MODIFIER_BY_TOKEN["shift"],
+        "RSHIFT": MODIFIER_BY_TOKEN["rshift"],
+        "LWIN": MODIFIER_BY_TOKEN["win"],
+        "RWIN": 0x5C,
+        "APPS": 0x5D,
+    }
+    for token in parsed.modifiers:
+        modifier_vk = modifier_vk_by_token.get(token)
         if modifier_vk is None:
-            modifier_vk = MODIFIER_BY_TOKEN.get(compact)
-        if modifier_vk is not None:
-            raise ValueError("Spam key cannot use modifiers/combinations. Use a single key only (example: F1 or A).")
-        mouse_alias = SPAM_MOUSE_ALIASES.get(compact)
-        if mouse_alias is not None:
-            if main_key is not None:
-                raise ValueError("Use only one spam key (example: F1 or A).")
-            main_key = mouse_alias
-            continue
-        normalized = KEY_ALIASES.get(lowered, part)
-        normalized = normalized.upper() if normalized.isalnum() else normalized
-        if normalized not in VK_BY_KEY:
-            raise ValueError(f"Unsupported spam key token '{part}'.")
-        if main_key is not None:
-            raise ValueError("Use only one spam key (example: F1 or A).")
-        main_key = normalized
-    if main_key is None:
-        raise ValueError("A spam key is required (example: F1 or A).")
-    if main_key in {"LMB", "RMB", "MMB", "MB4", "MB5"}:
-        canonical = f"{{{main_key}}}"
-        return canonical, []
-    if main_key.startswith("F") and main_key[1:].isdigit():
-        canonical = f"{{{main_key}}}"
-    else:
-        canonical = main_key
-    main_vk = VK_BY_KEY.get(main_key)
+            raise ValueError(f"Unsupported spam modifier '{token}'.")
+        sequence.append(modifier_vk)
+
+    main_vk = VK_BY_KEY.get(parsed.key_token)
     if main_vk is None:
-        raise ValueError(f"Unsupported spam key token '{main_key}'.")
-    return canonical, [main_vk]
+        raise ValueError(f"Unsupported spam key token '{parsed.key_token}'.")
+    sequence.append(main_vk)
+    return parsed.canonical, sequence

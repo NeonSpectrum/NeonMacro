@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ctypes
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -90,18 +89,16 @@ KEYBOARD_MODIFIER_ALIASES: dict[str, str] = {
     "APPS": "apps",
 }
 
-_BRACED_TOKEN_PATTERN = re.compile(r"\{([^{}]+)\}")
-
 RESERVED_HOTKEYS: set[str] = {
-    "{ALT}{TAB}",
-    "{ALT}{F4}",
-    "{ALT}{ESC}",
-    "{CTRL}{ALT}{DELETE}",
-    "{CTRL}{SHIFT}{ESC}",
-    "{LWIN}D",
-    "{LWIN}L",
-    "{LWIN}R",
-    "{LWIN}{TAB}",
+    "ALT+TAB",
+    "ALT+F4",
+    "ALT+ESC",
+    "CTRL+ALT+DELETE",
+    "CTRL+SHIFT+ESC",
+    "LWIN+D",
+    "LWIN+L",
+    "LWIN+R",
+    "LWIN+TAB",
 }
 
 _USER32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -150,7 +147,12 @@ class HotkeyManager:
         self._registered_priority_pause_keyboard_handlers: list[Callable] = []
         self._registered_profile_keyboard_handlers: list[Callable] = []
         self._registered_settings_keyboard_handlers: list[Callable] = []
+        self._registered_settings_mouse_handlers: list[Callable] = []
         self._probe_hotkey_id = 0xA000
+        self._hotkeys_enabled = True
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._hotkeys_enabled = enabled
 
     def apply_profile_hotkeys(self, profiles: list[SpamProfile]) -> None:
         self._clear_profile_hotkeys()
@@ -275,12 +277,17 @@ class HotkeyManager:
                 "Settings overlay hotkey cannot be bound. It may already be in use."
             )
         if parsed.includes_mouse:
-            raise ValueError("Settings overlay hotkey must use a keyboard key.")
-        self._register_keyboard_hook_hotkey(
-            parsed=parsed,
-            callback=self._on_settings_toggle_hotkey,
-            into=self._registered_settings_keyboard_handlers,
-        )
+            self._register_mouse_hotkey(
+                parsed=parsed,
+                callback=self._on_settings_toggle_hotkey,
+                into=self._registered_settings_mouse_handlers,
+            )
+        else:
+            self._register_keyboard_hook_hotkey(
+                parsed=parsed,
+                callback=self._on_settings_toggle_hotkey,
+                into=self._registered_settings_keyboard_handlers,
+            )
         return normalized
 
     def _normalize_hotkey(self, hotkey: str) -> str:
@@ -333,6 +340,8 @@ class HotkeyManager:
         modifiers = [KEYBOARD_MODIFIER_ALIASES[item] for item in parsed.modifiers]
 
         def _handler(event) -> None:
+            if not self._hotkeys_enabled:
+                return
             if not isinstance(event, mouse.ButtonEvent):
                 return
             if event.event_type != "down":
@@ -360,6 +369,8 @@ class HotkeyManager:
 
         def _handler(event) -> None:
             nonlocal pressed
+            if not self._hotkeys_enabled:
+                return
             if not isinstance(event, keyboard.KeyboardEvent):
                 return
             event_name = (event.name or "").lower()
@@ -478,6 +489,9 @@ class HotkeyManager:
         for handler in self._registered_settings_keyboard_handlers:
             keyboard.unhook(handler)
         self._registered_settings_keyboard_handlers.clear()
+        for handler in self._registered_settings_mouse_handlers:
+            mouse.unhook(handler)
+        self._registered_settings_mouse_handlers.clear()
 
 
 def _normalize_modifier_token(token: str) -> str | None:
@@ -523,56 +537,14 @@ def _normalize_key_token(token: str) -> str | None:
     return None
 
 
-def _parse_braced_input(raw: str) -> tuple[list[str], str, str | None, bool] | None:
-    index = 0
-    modifiers: list[str] = []
-    main_key: str | None = None
-    main_key_braced_label: str | None = None
-    main_key_is_braced = False
-    while index < len(raw):
-        char = raw[index]
-        if char.isspace():
-            index += 1
-            continue
-        if char == "{":
-            match = _BRACED_TOKEN_PATTERN.match(raw, index)
-            if match is None:
-                return None
-            token = match.group(1).strip()
-            modifier = _normalize_modifier_token(token)
-            if modifier is not None:
-                if main_key is not None:
-                    return None
-                modifiers.append(modifier)
-            else:
-                key_token = _normalize_key_token(token)
-                if key_token is None or main_key is not None:
-                    return None
-                main_key = key_token
-                main_key_braced_label = token
-                main_key_is_braced = True
-            index = match.end()
-            continue
-        key_token = _normalize_key_token(char)
-        if key_token is None or main_key is not None:
-            return None
-        main_key = key_token
-        main_key_braced_label = char
-        main_key_is_braced = False
-        index += 1
-    if main_key is None:
-        return None
-    return modifiers, main_key, main_key_braced_label, main_key_is_braced
-
-
 def _parse_hotkey(raw: str) -> ParsedHotkey | None:
     value = raw.strip()
     if not value:
         return None
-    parsed = _parse_braced_input(value)
+    parsed = _parse_plus_input(value)
     if parsed is None:
         return None
-    modifiers_in, key_token, key_braced_label, key_is_braced = parsed
+    modifiers_in, key_token, _key_braced_label, _key_is_braced = parsed
     seen: set[str] = set()
     modifiers: list[str] = []
     for modifier in MODIFIER_ORDER:
@@ -581,15 +553,7 @@ def _parse_hotkey(raw: str) -> ParsedHotkey | None:
             seen.add(modifier)
     if key_token in MODIFIER_TOKENS:
         return None
-    if key_braced_label is not None:
-        key_display = f"{{{key_braced_label}}}" if key_is_braced else key_braced_label
-    else:
-        key_display = (
-            f"{{{key_token}}}"
-            if len(key_token) > 1 and key_token not in MOUSE_BUTTON_ALIASES
-            else (f"{{{key_token}}}" if key_token in MOUSE_BUTTON_NAMES else key_token)
-        )
-    canonical = "".join(f"{{{item}}}" for item in modifiers) + key_display
+    canonical = "+".join([*modifiers, key_token]) if modifiers else key_token
     keyboard_parts = [KEYBOARD_MODIFIER_ALIASES[item] for item in modifiers]
     if key_token in MOUSE_BUTTON_NAMES:
         keyboard_hotkey = "+".join(keyboard_parts + [key_token.lower()])
@@ -605,6 +569,22 @@ def _parse_hotkey(raw: str) -> ParsedHotkey | None:
         keyboard_hotkey=keyboard_hotkey,
         includes_mouse=includes_mouse,
     )
+
+
+def _parse_plus_input(raw: str) -> tuple[list[str], str, str | None, bool] | None:
+    parts = [item.strip() for item in raw.split("+") if item.strip()]
+    if not parts:
+        return None
+    modifiers: list[str] = []
+    for token in parts[:-1]:
+        modifier = _normalize_modifier_token(token)
+        if modifier is None:
+            return None
+        modifiers.append(modifier)
+    main_key_token = _normalize_key_token(parts[-1])
+    if main_key_token is None:
+        return None
+    return modifiers, main_key_token, parts[-1], False
 
 
 def _scan_code_for_vk(vk: int | None) -> int | None:
