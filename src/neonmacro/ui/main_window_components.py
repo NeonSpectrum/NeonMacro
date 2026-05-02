@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tkinter as tk
 from dataclasses import dataclass
 from tkinter import ttk
 

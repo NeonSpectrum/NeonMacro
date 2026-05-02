@@ -1,39 +1,28 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from ..models import SpamProfile
 from ..core.postmessage import TargetWindow, list_visible_windows
+from .title_matching import CompiledTitleMatcher, compile_title_matcher, title_matches
 
 
 @dataclass(frozen=True)
 class CompiledProfileMatcher:
     profile: SpamProfile
-    regex: re.Pattern[str] | None
-    lowered_pattern: str
+    matcher: CompiledTitleMatcher
 
 
 def compile_profile_matchers(profiles: list[SpamProfile]) -> list[CompiledProfileMatcher]:
     compiled: list[CompiledProfileMatcher] = []
     for profile in profiles:
-        pattern = profile.window_title.strip()
-        if not pattern:
+        matcher = compile_title_matcher(profile.window_title, profile.use_regex)
+        if matcher is None:
             continue
-        regex: re.Pattern[str] | None = None
-        lowered = ""
-        if profile.use_regex:
-            try:
-                regex = re.compile(pattern, re.IGNORECASE)
-            except re.error:
-                continue
-        else:
-            lowered = pattern.lower()
         compiled.append(
             CompiledProfileMatcher(
                 profile=profile,
-                regex=regex,
-                lowered_pattern=lowered,
+                matcher=matcher,
             )
         )
     return compiled
@@ -49,10 +38,7 @@ def collect_targets_by_profile(
     for matcher in compile_profile_matchers(profiles):
         filtered: list[TargetWindow] = []
         for window in windows:
-            if matcher.regex is not None:
-                if not matcher.regex.search(window.title):
-                    continue
-            elif matcher.lowered_pattern not in window.title.lower():
+            if not title_matches(matcher.matcher, window.title):
                 continue
             if allowed and window.exe_name.lower() not in allowed:
                 continue

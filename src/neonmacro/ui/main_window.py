@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import logging
 import tkinter as tk
 import time
@@ -452,17 +451,7 @@ class MainWindow(ctk.CTk):
 
         x = parent_x + max(0, (parent_w - dialog_w) // 2)
         y = parent_y + max(0, (parent_h - dialog_h) // 2)
-
-        # Clamp within the virtual desktop so multi-monitor coordinates
-        # (including negative x/y on left/top monitors) are respected.
-        virtual_x = self.winfo_vrootx()
-        virtual_y = self.winfo_vrooty()
-        virtual_w = self.winfo_vrootwidth()
-        virtual_h = self.winfo_vrootheight()
-        max_x = virtual_x + virtual_w - dialog_w
-        max_y = virtual_y + virtual_h - dialog_h
-        x = max(virtual_x, min(x, max_x))
-        y = max(virtual_y, min(y, max_y))
+        x, y = self._clamp_dialog_position(dialog_w, dialog_h, x, y)
         dialog.geometry(f"+{x}+{y}")
 
     def _center_dialog_on_rect(
@@ -479,6 +468,14 @@ class MainWindow(ctk.CTk):
         dialog_h = max(dialog.winfo_height(), dialog.winfo_reqheight())
         x = left + max(0, (rect_w - dialog_w) // 2)
         y = top + max(0, (rect_h - dialog_h) // 2)
+        x, y = self._clamp_dialog_position(dialog_w, dialog_h, x, y)
+        dialog.geometry(f"+{x}+{y}")
+
+    def _clamp_dialog_position(
+        self, dialog_w: int, dialog_h: int, x: int, y: int
+    ) -> tuple[int, int]:
+        # Clamp within the virtual desktop so multi-monitor coordinates
+        # (including negative x/y on left/top monitors) are respected.
         virtual_x = self.winfo_vrootx()
         virtual_y = self.winfo_vrooty()
         virtual_w = self.winfo_vrootwidth()
@@ -487,7 +484,7 @@ class MainWindow(ctk.CTk):
         max_y = virtual_y + virtual_h - dialog_h
         x = max(virtual_x, min(x, max_x))
         y = max(virtual_y, min(y, max_y))
-        dialog.geometry(f"+{x}+{y}")
+        return x, y
 
     def _save_options(
         self,
@@ -510,9 +507,7 @@ class MainWindow(ctk.CTk):
             self._overlay.set_position(self._config.overlay.x, self._config.overlay.y)
             messagebox.showerror("Options", str(exc))
             return
-        self._refresh_profile_list(selected_name=self._selected_profile_name)
-        self._apply_active_profiles_state()
-        self._save_config_debounced()
+        self._refresh_apply_and_save(selected_name=self._selected_profile_name)
         self._sync_startup_options()
 
     def _sync_startup_options(self) -> None:
@@ -592,11 +587,7 @@ class MainWindow(ctk.CTk):
                 profile.is_active = False
                 self._update_table_row(index)
         self._apply_active_profiles_state()
-        if self._priority_input_resume_job is not None:
-            self.after_cancel(self._priority_input_resume_job)
-        if self._priority_pause_status_job is not None:
-            self.after_cancel(self._priority_pause_status_job)
-            self._priority_pause_status_job = None
+        self._cancel_priority_pause_jobs(clear_resume=True)
         self._update_priority_pause_status()
         self._sync_overlay_visibility()
         self._priority_input_resume_job = self.after(pause_ms, self._resume_from_priority_input_pause)
@@ -605,9 +596,7 @@ class MainWindow(ctk.CTk):
 
     def _resume_from_priority_input_pause(self) -> None:
         self._priority_input_resume_job = None
-        if self._priority_pause_status_job is not None:
-            self.after_cancel(self._priority_pause_status_job)
-            self._priority_pause_status_job = None
+        self._cancel_priority_pause_jobs(clear_resume=False)
         for index, profile in enumerate(self._config.profiles):
             if profile.name in self._priority_paused_profile_names:
                 profile.is_active = True
@@ -630,6 +619,14 @@ class MainWindow(ctk.CTk):
     def _priority_input_pause_seconds(self) -> float:
         pause_ms = max(0, int(self._config.options.auto_pause_stop_duration_ms))
         return pause_ms / 1000.0
+
+    def _cancel_priority_pause_jobs(self, *, clear_resume: bool) -> None:
+        if clear_resume and self._priority_input_resume_job is not None:
+            self.after_cancel(self._priority_input_resume_job)
+            self._priority_input_resume_job = None
+        if self._priority_pause_status_job is not None:
+            self.after_cancel(self._priority_pause_status_job)
+            self._priority_pause_status_job = None
 
     def _enforce_parallel_profile_policy(self) -> None:
         enforce_parallel_profile_policy(
@@ -778,10 +775,7 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("Validation", validation_error)
             return
         self._config.profiles.append(profile)
-        self._refresh_profile_list()
-        self._apply_options()
-        self._apply_active_profiles_state()
-        self._save_config_debounced()
+        self._refresh_apply_and_save()
 
     def _update_selected(self) -> None:
         index = self._selected_index()
@@ -805,10 +799,7 @@ class MainWindow(ctk.CTk):
         self._config.profiles[index] = profile
         if self._selected_profile_name == existing_name:
             self._selected_profile_name = profile.name
-        self._refresh_profile_list(selected_name=profile.name)
-        self._apply_options()
-        self._apply_active_profiles_state()
-        self._save_config_debounced()
+        self._refresh_apply_and_save(selected_name=profile.name)
 
     def _delete_selected(self) -> None:
         index = self._selected_index()
@@ -819,10 +810,7 @@ class MainWindow(ctk.CTk):
         if self._selected_profile_name == name:
             self._selected_profile_name = None
             self._clear_form()
-        self._refresh_profile_list()
-        self._apply_options()
-        self._apply_active_profiles_state()
-        self._save_config_debounced()
+        self._refresh_apply_and_save()
 
     def _on_table_selected(self, _event=None) -> None:
         index = self._selected_index()
@@ -982,13 +970,7 @@ class MainWindow(ctk.CTk):
                 "",
                 tk.END,
                 image=self._table_ui.checkbox_images[profile.is_active],
-                values=(
-                    profile.name,
-                    profile.window_title,
-                    profile.interval_ms,
-                    format_hotkey_for_display(profile.select_hotkey),
-                    format_hotkey_for_display(profile.spam_key),
-                ),
+                values=self._profile_row_values(profile),
             )
         self.after_idle(self._update_table_scrollbar_visibility)
         target = selected_name or self._selected_profile_name
@@ -1000,8 +982,23 @@ class MainWindow(ctk.CTk):
                 self._on_table_selected()
                 break
 
+    def _refresh_apply_and_save(self, *, selected_name: str | None = None) -> None:
+        self._refresh_profile_list(selected_name=selected_name)
+        self._apply_options()
+        self._apply_active_profiles_state()
+        self._save_config_debounced()
+
     def _update_table_scrollbar_visibility(self) -> None:
         self._table_ui.update_scrollbar_visibility()
+
+    def _profile_row_values(self, profile: SpamProfile) -> tuple[str, str, int, str, str]:
+        return (
+            profile.name,
+            profile.window_title,
+            profile.interval_ms,
+            format_hotkey_for_display(profile.select_hotkey),
+            format_hotkey_for_display(profile.spam_key),
+        )
 
     def _update_table_row(self, index: int) -> None:
         children = self.profile_table.get_children()
@@ -1012,13 +1009,7 @@ class MainWindow(ctk.CTk):
         self.profile_table.item(
             item_id,
             image=self._table_ui.checkbox_images[profile.is_active],
-            values=(
-                profile.name,
-                profile.window_title,
-                profile.interval_ms,
-                format_hotkey_for_display(profile.select_hotkey),
-                format_hotkey_for_display(profile.spam_key),
-            ),
+            values=self._profile_row_values(profile),
         )
 
     def _selected_index(self) -> int | None:
@@ -1102,12 +1093,7 @@ class MainWindow(ctk.CTk):
                 changed = True
         if not changed:
             return
-        if self._priority_input_resume_job is not None:
-            self.after_cancel(self._priority_input_resume_job)
-            self._priority_input_resume_job = None
-        if self._priority_pause_status_job is not None:
-            self.after_cancel(self._priority_pause_status_job)
-            self._priority_pause_status_job = None
+        self._cancel_priority_pause_jobs(clear_resume=True)
         self._priority_paused_profile_names.clear()
         self._priority_pause_deadline = 0.0
         self._apply_active_profiles_state()
@@ -1139,12 +1125,7 @@ class MainWindow(ctk.CTk):
         if self._config_save_job is not None:
             self.after_cancel(self._config_save_job)
             self._config_save_job = None
-        if self._priority_input_resume_job is not None:
-            self.after_cancel(self._priority_input_resume_job)
-            self._priority_input_resume_job = None
-        if self._priority_pause_status_job is not None:
-            self.after_cancel(self._priority_pause_status_job)
-            self._priority_pause_status_job = None
+        self._cancel_priority_pause_jobs(clear_resume=True)
         if self._pending_overlay_center is not None:
             center_x, center_y = self._pending_overlay_center
             self._config.overlay.x = center_x

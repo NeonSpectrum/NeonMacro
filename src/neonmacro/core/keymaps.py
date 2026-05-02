@@ -1,41 +1,7 @@
 from __future__ import annotations
 
 from .hotkeys import _parse_hotkey
-from .keycodes import KEY_ALIASES, MODIFIER_BY_TOKEN, VK_BY_KEY
-
-SPAM_MOUSE_ALIASES: dict[str, str] = {
-    "lmb": "LMB",
-    "rmb": "RMB",
-    "mmb": "MMB",
-    "mb4": "MB4",
-    "mb5": "MB5",
-}
-
-SHIFTED_SYMBOL_TO_BASE: dict[str, str] = {
-    "!": "1",
-    "@": "2",
-    "#": "3",
-    "$": "4",
-    "%": "5",
-    "^": "6",
-    "&": "7",
-    "*": "8",
-    "(": "9",
-    ")": "0",
-    "_": "-",
-    "+": "=",
-    "{": "[",
-    "}": "]",
-    "|": "\\",
-    ":": ";",
-    '"': "'",
-    "<": ",",
-    ">": ".",
-    "?": "/",
-    "~": "`",
-}
-
-SPAM_KEYS = list(VK_BY_KEY.keys())
+from .keycodes import MODIFIER_BY_TOKEN, VK_BY_KEY
 
 
 def normalize_spam_key_combo(raw: str) -> tuple[str, list[int]]:

@@ -11,8 +11,11 @@ dependencies = [
     "customtkinter>=5.2.2",
     "keyboard>=0.13.5",
     "mouse>=0.7.1",
+    "nuitka",
+    "ordered-set",
     "psutil>=5.9.8",
     "pywin32>=306",
+    "zstandard",
 ]
 
 [project.scripts]
@@ -23,6 +26,4 @@ build = "neonmacro.build_exe:main"
 packages = [{ include = "neonmacro", from = "src" }]
 
 [tool.poetry.group.dev.dependencies]
-nuitka = "*"
-ordered-set = "*"
-zstandard = "*"
+ruff = "^0.15.12"

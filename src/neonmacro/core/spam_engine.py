@@ -68,14 +68,6 @@ class SpamEngine:
         logger.info("Spam engine enabled set to %s", enabled)
         self._emit_status()
 
-    def toggle_enabled(self) -> bool:
-        with self._lock:
-            self._state.enabled = not self._state.enabled
-            value = self._state.enabled
-        logger.info("Spam engine toggled to %s", value)
-        self._emit_status()
-        return value
-
     def pause_temporarily(self, duration_seconds: float) -> None:
         duration = max(0.0, duration_seconds)
         pause_until = time.monotonic() + duration

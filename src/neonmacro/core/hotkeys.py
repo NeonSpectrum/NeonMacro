@@ -137,9 +137,7 @@ class HotkeyManager:
         self._on_auto_stop_hotkey = on_auto_stop_hotkey
         self._on_priority_pause_hotkey = on_priority_pause_hotkey
         self._on_settings_toggle_hotkey = on_settings_toggle_hotkey
-        self._registered_ids: list[int] = []
         self._registered_auto_stop_ids: list[int] = []
-        self._registered_priority_pause_ids: list[int] = []
         self._registered_settings_hotkey_id: int | None = None
         self._registered_mouse_handlers: list[Callable] = []
         self._registered_auto_stop_mouse_handlers: list[Callable] = []
@@ -441,12 +439,6 @@ class HotkeyManager:
         self._clear_settings_toggle_hotkey()
 
     def _clear_profile_hotkeys(self) -> None:
-        for hotkey_id in self._registered_ids:
-            try:
-                keyboard.remove_hotkey(hotkey_id)
-            except KeyError:
-                continue
-        self._registered_ids.clear()
         for handler in self._registered_profile_keyboard_handlers:
             keyboard.unhook(handler)
         self._registered_profile_keyboard_handlers.clear()
@@ -466,12 +458,6 @@ class HotkeyManager:
         self._registered_auto_stop_mouse_handlers.clear()
 
     def _clear_priority_pause_hotkeys(self) -> None:
-        for hotkey_id in self._registered_priority_pause_ids:
-            try:
-                keyboard.remove_hotkey(hotkey_id)
-            except KeyError:
-                continue
-        self._registered_priority_pause_ids.clear()
         for handler in self._registered_priority_pause_keyboard_handlers:
             keyboard.unhook(handler)
         self._registered_priority_pause_keyboard_handlers.clear()

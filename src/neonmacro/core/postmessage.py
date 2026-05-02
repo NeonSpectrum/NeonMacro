@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
-import re
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -70,18 +68,6 @@ class TargetWindow:
     exe_name: str
 
 
-def _build_matcher(pattern: str, use_regex: bool) -> Callable[[str], bool]:
-    if use_regex:
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error:
-            logger.warning("Invalid regex pattern '%s'; profile will match nothing.", pattern)
-            return lambda _title: False
-        return lambda title: bool(regex.search(title))
-    lowered = pattern.lower()
-    return lambda title: lowered in title.lower()
-
-
 def _get_process_name(hwnd: int) -> str:
     _, process_id = win32process.GetWindowThreadProcessId(hwnd)
     process = psutil.Process(process_id)
@@ -105,39 +91,6 @@ def list_visible_windows() -> list[TargetWindow]:
 
     win32gui.EnumWindows(_enum_handler, 0)
     return windows
-
-
-def find_target_windows(
-    title_pattern: str,
-    use_regex: bool,
-    allowed_executables: list[str],
-) -> list[TargetWindow]:
-    matcher = _build_matcher(title_pattern, use_regex)
-    allowed = {item.lower() for item in allowed_executables}
-    matches: list[TargetWindow] = []
-    title_only_matches: list[TargetWindow] = []
-
-    for target in list_visible_windows():
-        title = target.title
-        if not matcher(title):
-            continue
-        title_only_matches.append(target)
-        if allowed and target.exe_name.lower() not in allowed:
-            continue
-        matches.append(target)
-    logger.debug(
-        "find_target_windows pattern=%r regex=%s allowed=%s title_matches=%d filtered_matches=%d",
-        title_pattern,
-        use_regex,
-        allowed_executables,
-        len(title_only_matches),
-        len(matches),
-    )
-    if matches:
-        return matches
-    if allowed:
-        return title_only_matches
-    return matches
 
 
 def send_key(hwnd: int, key_name: str) -> bool:
