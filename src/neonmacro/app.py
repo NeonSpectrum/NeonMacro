@@ -73,7 +73,11 @@ def main() -> None:
     _set_windows_app_user_model_id()
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
-    window = MainWindow(config_path=config_path(), launch_silent=launch_silent)
+    window = MainWindow(
+        config_path=config_path(),
+        launch_silent=launch_silent,
+        single_instance_mutex_handle=mutex_handle,
+    )
     try:
         window.mainloop()
     except KeyboardInterrupt:
@@ -83,7 +87,7 @@ def main() -> None:
         except Exception:
             pass
     finally:
-        ctypes.windll.kernel32.CloseHandle(mutex_handle)
+        window.release_single_instance_mutex_if_held()
 
 
 if __name__ == "__main__":

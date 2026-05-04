@@ -20,11 +20,13 @@ class SystemTrayController:
         icon_path: str | None,
         on_open: Callable[[], None],
         on_exit: Callable[[], None],
+        on_reload: Callable[[], None] | None = None,
     ) -> None:
         self._tooltip = tooltip
         self._icon_path = icon_path
         self._on_open = on_open
         self._on_exit = on_exit
+        self._on_reload = on_reload
         self._thread: threading.Thread | None = None
         self._hwnd: int | None = None
         self._notify_id: tuple | None = None
@@ -83,6 +85,7 @@ class SystemTrayController:
         message_id = win32con.WM_USER + 1
         open_command = 1001
         exit_command = 1002
+        reload_command = 1003
 
         def on_command(hwnd: int, msg: int, wparam: int, lparam: int) -> int:
             command = win32api.LOWORD(wparam)
@@ -90,6 +93,8 @@ class SystemTrayController:
                 self._handle_open()
             elif command == exit_command:
                 self._handle_exit()
+            elif command == reload_command:
+                self._handle_reload()
             return 0
 
         def on_taskbar_notify(hwnd: int, msg: int, wparam: int, lparam: int) -> int:
@@ -97,7 +102,9 @@ class SystemTrayController:
                 self._handle_open()
                 return 0
             if lparam == win32con.WM_RBUTTONUP:
-                self._show_context_menu(hwnd, open_command, exit_command)
+                self._show_context_menu(
+                    hwnd, open_command, reload_command, exit_command
+                )
             return 0
 
         def on_destroy(hwnd: int, msg: int, wparam: int, lparam: int) -> int:
@@ -183,9 +190,17 @@ class SystemTrayController:
         self._startup_event.set()
         win32gui.PumpMessages()
 
-    def _show_context_menu(self, hwnd: int, open_command: int, exit_command: int) -> None:
+    def _show_context_menu(
+        self,
+        hwnd: int,
+        open_command: int,
+        reload_command: int,
+        exit_command: int,
+    ) -> None:
         menu = win32gui.CreatePopupMenu()
         win32gui.AppendMenu(menu, win32con.MF_STRING, open_command, "Open NeonMacro")
+        if self._on_reload is not None:
+            win32gui.AppendMenu(menu, win32con.MF_STRING, reload_command, "Reload")
         win32gui.AppendMenu(menu, win32con.MF_STRING, exit_command, "Exit")
         pos_x, pos_y = win32gui.GetCursorPos()
         win32gui.SetForegroundWindow(hwnd)
@@ -212,3 +227,11 @@ class SystemTrayController:
             self._on_exit()
         except Exception:
             logger.exception("System tray exit handler failed.")
+
+    def _handle_reload(self) -> None:
+        if self._on_reload is None:
+            return
+        try:
+            self._on_reload()
+        except Exception:
+            logger.exception("System tray reload handler failed.")

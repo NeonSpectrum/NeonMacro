@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ctypes
 import logging
+import subprocess
+import sys
 import tkinter as tk
 import time
 from pathlib import Path
@@ -28,7 +31,9 @@ from .key_capture import attach_hotkey_capture, format_hotkey_for_display
 from .main_window_components import build_main_window_widgets
 from .overlay_controller import (
     active_profiles_matching_title,
+    allowed_application_exes,
     get_foreground_context,
+    get_foreground_process_exe,
     is_allowed_application_focused,
 )
 from .system_tray import SystemTrayController
@@ -39,12 +44,19 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(ctk.CTk):
-    def __init__(self, config_path: Path, *, launch_silent: bool = False) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        *,
+        launch_silent: bool = False,
+        single_instance_mutex_handle: int | None = None,
+    ) -> None:
         super().__init__()
         self.title("NeonMacro")
         self._window_icon_ico_path: str | None = None
         self._apply_window_icon()
         self._is_exiting = False
+        self._single_instance_mutex_handle = single_instance_mutex_handle
         self._is_minimized_to_tray = False
         self._default_width = 600
         self._default_height = 700
@@ -85,6 +97,7 @@ class MainWindow(ctk.CTk):
             icon_path=self._window_icon_ico_path,
             on_open=lambda: self.after(0, self._restore_from_tray),
             on_exit=lambda: self.after(0, self._on_exit),
+            on_reload=lambda: self.after(0, self._restart_application),
         )
         self._overlay_sync_job: str | None = None
         self._theme_sync_job: str | None = None
@@ -125,6 +138,8 @@ class MainWindow(ctk.CTk):
         self._priority_paused_profile_names: set[str] = set()
         self._priority_pause_deadline: float = 0.0
         self._active_hotkey_capture_overlays = 0
+        self._foreground_hotkey_poll_job: str | None = None
+        self._last_foreground_exe_for_hotkey_poll: str | None = None
         self._startup_hotkey_issues: list[str] = []
         self._sanitize_profile_hotkeys_on_startup()
         self._build_layout()
@@ -141,6 +156,7 @@ class MainWindow(ctk.CTk):
         self._engine.start()
         self._schedule_overlay_sync()
         self._schedule_theme_sync()
+        self._schedule_foreground_hotkey_poll()
         if self._startup_hotkey_issues:
             details = "\n".join(f"- {item}" for item in self._startup_hotkey_issues)
             messagebox.showerror(
@@ -644,6 +660,70 @@ class MainWindow(ctk.CTk):
             self._apply_table_theme()
         self._theme_sync_job = self.after(500, self._schedule_theme_sync)
 
+    def _schedule_foreground_hotkey_poll(self) -> None:
+        self._foreground_hotkey_poll_job = self.after(750, self._foreground_hotkey_poll_tick)
+
+    def _foreground_hotkey_poll_tick(self) -> None:
+        self._foreground_hotkey_poll_job = None
+        if self._is_exiting:
+            return
+        exe = get_foreground_process_exe()
+        allowed = allowed_application_exes(self._config.options)
+        prev = self._last_foreground_exe_for_hotkey_poll
+        if (
+            allowed
+            and exe is not None
+            and exe in allowed
+            and prev is not None
+            and prev not in allowed
+        ):
+            self._refresh_hotkeys_bindings()
+        self._last_foreground_exe_for_hotkey_poll = exe
+        self._schedule_foreground_hotkey_poll()
+
+    def release_single_instance_mutex_if_held(self) -> None:
+        h = self._single_instance_mutex_handle
+        if h is not None:
+            ctypes.windll.kernel32.CloseHandle(h)
+            self._single_instance_mutex_handle = None
+
+    def _restart_application(self) -> None:
+        if self._is_exiting:
+            return
+        try:
+            self.release_single_instance_mutex_if_held()
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = (
+                    subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            subprocess.Popen(list(sys.argv), close_fds=True, creationflags=creationflags)
+        except Exception:
+            logger.exception("Failed to start replacement NeonMacro process")
+            return
+        self._on_exit()
+
+    def _refresh_hotkeys_bindings(self) -> None:
+        if self._active_hotkey_capture_overlays > 0:
+            return
+        try:
+            self._hotkeys.apply_profile_hotkeys(self._config.profiles)
+            self._hotkeys.apply_auto_stop_hotkeys(
+                enabled=False,
+                stop_keys=[],
+            )
+            settings_hotkey = self._hotkeys.normalize_hotkey(
+                self._config.options.settings_toggle_hotkey
+            )
+            if settings_hotkey:
+                self._config.options.settings_toggle_hotkey = (
+                    self._hotkeys.apply_settings_toggle_hotkey(settings_hotkey)
+                )
+            self._apply_priority_input_pause_option()
+            logger.info("Hotkeys reloaded")
+        except Exception:
+            logger.exception("Hotkey reload failed")
+
     def _sync_overlay_visibility(self) -> None:
         sync_started = time.perf_counter()
         self._enforce_foreground_change_stop()
@@ -1125,6 +1205,9 @@ class MainWindow(ctk.CTk):
         if self._config_save_job is not None:
             self.after_cancel(self._config_save_job)
             self._config_save_job = None
+        if self._foreground_hotkey_poll_job is not None:
+            self.after_cancel(self._foreground_hotkey_poll_job)
+            self._foreground_hotkey_poll_job = None
         self._cancel_priority_pause_jobs(clear_resume=True)
         if self._pending_overlay_center is not None:
             center_x, center_y = self._pending_overlay_center
@@ -1137,4 +1220,5 @@ class MainWindow(ctk.CTk):
         self._tray.shutdown()
         self._overlay.destroy()
         self.destroy()
+        self.release_single_instance_mutex_if_held()
 

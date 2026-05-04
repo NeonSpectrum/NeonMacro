@@ -17,6 +17,21 @@ class ForegroundContext:
     exe_name: str
 
 
+def get_foreground_process_exe() -> str | None:
+    """Foreground executable name, or None if unavailable.
+
+    Unlike get_foreground_context, does not require a non-empty window title.
+    """
+    try:
+        foreground = win32gui.GetForegroundWindow()
+        if foreground == 0:
+            return None
+        _, process_id = win32process.GetWindowThreadProcessId(foreground)
+        return psutil.Process(process_id).name().lower()
+    except (win32gui.error, win32process.error, psutil.Error):
+        return None
+
+
 def get_foreground_context() -> ForegroundContext | None:
     try:
         foreground = win32gui.GetForegroundWindow()
@@ -47,8 +62,13 @@ def active_profiles_matching_title(
     return matches
 
 
+def allowed_application_exes(options: AppOptions) -> set[str]:
+    """Lowercased executable names from options (may be empty)."""
+    return {app.strip().lower() for app in options.allowed_applications if app.strip()}
+
+
 def is_allowed_application_focused(options: AppOptions, exe_name: str) -> bool:
-    allowed = {app.strip().lower() for app in options.allowed_applications if app.strip()}
+    allowed = allowed_application_exes(options)
     if not allowed:
         return True
     return exe_name in allowed

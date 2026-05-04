@@ -13,7 +13,7 @@ alwaysApply: true
 - Help popup content: src/neonmacro/ui/help_content.py (single source of Help dialog sections shown from MainWindow).
 - Core runtime pieces: src/neonmacro/core/spam_engine.py (send loop), src/neonmacro/core/hotkeys.py (global/profile hotkeys), src/neonmacro/core/config.py (JSON load/save), src/neonmacro/core/startup.py (Windows Run-key startup registration).
 - Overlay + targeting: src/neonmacro/core/overlay.py, src/neonmacro/ui/overlay_controller.py, src/neonmacro/targeting/window_targeting.py, src/neonmacro/targeting/title_matching.py (shared regex/substring title matcher compilation used by overlay and runtime target collection).
-- Tray integration: src/neonmacro/ui/system_tray.py (system tray icon/menu), src/neonmacro/ui/main_window.py (minimize-to-tray and restore wiring).
+- Tray integration: src/neonmacro/ui/system_tray.py (system tray icon/menu, Reload restarts app), src/neonmacro/ui/main_window.py (minimize-to-tray, restore, foreground-based hotkey rebind when returning to an exe in Options application list).
 
 # Maintenance Rule
 
