@@ -67,7 +67,8 @@ def main() -> None:
     launch_silent = "--silent" in sys.argv[1:]
     mutex_handle = _acquire_single_instance_mutex()
     if mutex_handle is None:
-        _focus_existing_instance()
+        if not launch_silent:
+            _focus_existing_instance()
         return
     configure_logging(config_path().parent / "debug.log")
     _set_windows_app_user_model_id()
